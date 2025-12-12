@@ -103,6 +103,7 @@ AVAILABLE_CHAT_TEMPLATE_MODELS = {
     "async_openai": "AsyncOpenAIChat",
     "longvila": "LongVila",
     "llava_onevision1_5": "Llava_OneVision1_5",
+    "emu3": "EMU3",
 }
 
 
