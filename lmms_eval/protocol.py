@@ -4,7 +4,8 @@ from typing import Any, Dict, List, Literal, Union
 
 import numpy as np
 import torch
-from decord import VideoReader, cpu
+#from decord import VideoReader, cpu
+# TODO: might uncomment later when video used. Currently no and would need image with built form source on cluster
 from PIL import Image
 from pydantic import BaseModel
 

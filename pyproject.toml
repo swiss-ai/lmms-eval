@@ -69,7 +69,7 @@ dependencies = [
     "pre-commit",
     "pydantic",
     "packaging",
-    "decord; platform_system != 'Darwin'",
+    "decord; platform_system != 'Darwin'", # Decord is not available for aarch64 as wheel, need to build from source but for now not needed!
     "eva-decord; platform_system == 'Darwin'",
     "zss",
     "protobuf",
