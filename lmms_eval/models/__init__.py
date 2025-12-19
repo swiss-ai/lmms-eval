@@ -105,6 +105,8 @@ AVAILABLE_CHAT_TEMPLATE_MODELS = {
     "llava_onevision1_5": "Llava_OneVision1_5",
     "emu3": "EMU3",
     "emu3p5": "EMU3_5",
+    "llama_emu3": "LlamaEmu3Chat",
+    "llama_emu3p5": "LlamaEmu3p5Chat"
 }
 
 
