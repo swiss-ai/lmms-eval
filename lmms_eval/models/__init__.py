@@ -1,7 +1,6 @@
 import importlib
 import os
 import sys
-from typing import Literal
 
 from loguru import logger
 
@@ -9,12 +8,19 @@ from loguru import logger
 
 logger.remove()
 # Configure logger with detailed format including file path, function name, and line number
-log_format = "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | " "<level>{level: <8}</level> | " "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - " "<level>{message}</level>"
+log_format = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+    "<level>{level: <8}</level> | "
+    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+    "<level>{message}</level>"
+)
 logger.add(sys.stdout, level="WARNING", format=log_format)
 
 
 AVAILABLE_SIMPLE_MODELS = {
     "aero": "Aero",
+    "apertus_emu3_simple": "ApertusEmu3Simple",
+    "apertus_emu3p5_simple": "ApertusEmu3p5Simple",
     "aria": "Aria",
     "auroracap": "AuroraCap",
     "bagel": "Bagel",
@@ -106,12 +112,17 @@ AVAILABLE_CHAT_TEMPLATE_MODELS = {
     "emu3": "EMU3",
     "emu3p5": "EMU3_5",
     "llama_emu3": "LlamaEmu3Chat",
-    "llama_emu3p5": "LlamaEmu3p5Chat"
+    "llama_emu3p5": "LlamaEmu3p5Chat",
+    "apertus_emu3": "ApertusEmu3Chat",
+    "apertus_emu3p5": "ApertusEmu3p5Chat",
 }
 
 
 def get_model(model_name, force_simple: bool = False):
-    if model_name not in AVAILABLE_SIMPLE_MODELS and model_name not in AVAILABLE_CHAT_TEMPLATE_MODELS:
+    if (
+        model_name not in AVAILABLE_SIMPLE_MODELS
+        and model_name not in AVAILABLE_CHAT_TEMPLATE_MODELS
+    ):
         raise ValueError(f"Model {model_name} not found in available models.")
 
     if model_name in AVAILABLE_CHAT_TEMPLATE_MODELS:
@@ -145,4 +156,6 @@ if os.environ.get("LMMS_EVAL_PLUGINS", None):
         m = importlib.import_module(f"{plugin}.models")
         # For plugin users, this will be replaced by chat template model later
         for model_name, model_class in getattr(m, "AVAILABLE_MODELS").items():
-            AVAILABLE_SIMPLE_MODELS[model_name] = f"{plugin}.models.{model_name}.{model_class}"
+            AVAILABLE_SIMPLE_MODELS[model_name] = (
+                f"{plugin}.models.{model_name}.{model_class}"
+            )
