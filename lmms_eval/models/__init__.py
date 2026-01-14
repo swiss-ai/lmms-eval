@@ -8,12 +8,7 @@ from loguru import logger
 
 logger.remove()
 # Configure logger with detailed format including file path, function name, and line number
-log_format = (
-    "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-    "<level>{level: <8}</level> | "
-    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
-    "<level>{message}</level>"
-)
+log_format = "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | " "<level>{level: <8}</level> | " "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - " "<level>{message}</level>"
 logger.add(sys.stdout, level="WARNING", format=log_format)
 
 
@@ -119,10 +114,7 @@ AVAILABLE_CHAT_TEMPLATE_MODELS = {
 
 
 def get_model(model_name, force_simple: bool = False):
-    if (
-        model_name not in AVAILABLE_SIMPLE_MODELS
-        and model_name not in AVAILABLE_CHAT_TEMPLATE_MODELS
-    ):
+    if model_name not in AVAILABLE_SIMPLE_MODELS and model_name not in AVAILABLE_CHAT_TEMPLATE_MODELS:
         raise ValueError(f"Model {model_name} not found in available models.")
 
     if model_name in AVAILABLE_CHAT_TEMPLATE_MODELS:
@@ -156,6 +148,4 @@ if os.environ.get("LMMS_EVAL_PLUGINS", None):
         m = importlib.import_module(f"{plugin}.models")
         # For plugin users, this will be replaced by chat template model later
         for model_name, model_class in getattr(m, "AVAILABLE_MODELS").items():
-            AVAILABLE_SIMPLE_MODELS[model_name] = (
-                f"{plugin}.models.{model_name}.{model_class}"
-            )
+            AVAILABLE_SIMPLE_MODELS[model_name] = f"{plugin}.models.{model_name}.{model_class}"
