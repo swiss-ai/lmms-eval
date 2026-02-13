@@ -31,8 +31,15 @@ class ApertusOmniChat(ApertusOmniBaseModel):
         chat_template: str | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(model_descriptor=model_descriptor, **kwargs)
-        tok_path = tokenizer_path or model_descriptor
+        debug_samples_raw = kwargs.pop("debug_samples", os.getenv("LMMS_APERTUS_DEBUG_SAMPLES", "5"))
+        debug_max_chars_raw = kwargs.pop("debug_max_chars", os.getenv("LMMS_APERTUS_DEBUG_MAX_CHARS", "4000"))
+
+        super().__init__(
+            model_descriptor=model_descriptor,
+            tokenizer_path=tokenizer_path,
+            **kwargs,
+        )
+        tok_path = self.tokenizer_path
         self.tokenizer = AutoTokenizer.from_pretrained(tok_path)
         if self.tokenizer.pad_token is None and self.tokenizer.eos_token is not None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -49,6 +56,16 @@ class ApertusOmniChat(ApertusOmniBaseModel):
 
         if self.chat_template is not None:
             self.tokenizer.chat_template = self.chat_template
+
+        try:
+            self.debug_samples = max(0, int(debug_samples_raw))
+        except (TypeError, ValueError):
+            self.debug_samples = 5
+        try:
+            self.debug_max_chars = max(0, int(debug_max_chars_raw))
+        except (TypeError, ValueError):
+            self.debug_max_chars = 4000
+        self._debug_logged_samples = 0
 
     @staticmethod
     def _chat_transform(hf_messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -77,6 +94,50 @@ class ApertusOmniChat(ApertusOmniBaseModel):
         except Exception as e:
             eval_logger.warning(f"ApertusOmniChat: apply_chat_template failed; falling back to raw context. Error: {e}")
             return str(fallback_context)
+
+    def _truncate_for_debug(self, text: str) -> str:
+        if self.debug_max_chars <= 0 or len(text) <= self.debug_max_chars:
+            return text
+        head = self.debug_max_chars // 2
+        tail = self.debug_max_chars - head
+        hidden = len(text) - self.debug_max_chars
+        return f"{text[:head]}\n...[truncated {hidden} chars]...\n{text[-tail:]}"
+
+    def _maybe_log_debug_sample(
+        self,
+        request: Instance,
+        prompt_dict: dict[str, Any],
+        output_text: str,
+        gen_kwargs: dict[str, Any],
+    ) -> None:
+        if self.rank != 0:
+            return
+        if self.debug_samples <= 0 or self._debug_logged_samples >= self.debug_samples:
+            return
+
+        try:
+            context, _doc_to_messages, _request_gen_kwargs, doc_id, task, split = request.arguments
+            prompt_text = str(prompt_dict.get("prompt", context))
+            mm_data = prompt_dict.get("multi_modal_data") or {}
+            image_data = mm_data.get("image") if isinstance(mm_data, dict) else None
+            image_count = len(image_data) if isinstance(image_data, list) else (1 if image_data is not None else 0)
+
+            sample_idx = self._debug_logged_samples + 1
+            eval_logger.info(
+                f"[ApertusOmniChat Debug {sample_idx}/{self.debug_samples}] "
+                f"task={task}, split={split}, doc_id={doc_id}, images={image_count}, "
+                f"prompt_chars={len(prompt_text)}, output_chars={len(output_text)}"
+            )
+            eval_logger.info(f"[ApertusOmniChat Debug {sample_idx}] gen_kwargs={gen_kwargs}")
+            eval_logger.info(
+                f"[ApertusOmniChat Debug {sample_idx}] input_prompt:\n{self._truncate_for_debug(prompt_text)}"
+            )
+            eval_logger.info(
+                f"[ApertusOmniChat Debug {sample_idx}] output_text:\n{self._truncate_for_debug(output_text)}"
+            )
+            self._debug_logged_samples += 1
+        except Exception as e:
+            eval_logger.warning(f"ApertusOmniChat: debug sample logging failed: {e}")
 
     def make_one_request(self, request: Instance) -> tuple[dict[str, Any] | None, dict[str, Any], dict[str, int]]:
         counters = {
@@ -172,8 +233,14 @@ class ApertusOmniChat(ApertusOmniBaseModel):
                 prompt_dicts = [entry[1] for entry in batched_inputs]
                 response_text = self._generate_batch(prompt_dicts, sampling_params)
 
-                for (idx, _), text in zip(batched_inputs, response_text):
+                for (idx, prompt_dict), text in zip(batched_inputs, response_text):
                     batch_outputs[idx] = text
+                    self._maybe_log_debug_sample(
+                        batch_requests[idx],
+                        prompt_dict=prompt_dict,
+                        output_text=text,
+                        gen_kwargs=sampling_params_dict,
+                    )
                     self.add_request_response_to_cache(batch_requests[idx], text)
 
             res.extend(batch_outputs)

@@ -1,21 +1,22 @@
 #!/bin/bash
-#SBATCH --account=a-infra01
+#SBATCH --account=infra01
 #SBATCH --job-name=eval-apertus-omni
-#SBATCH --environment=emu3
+#SBATCH --environment=/iopsstor/scratch/cscs/anunay/swissai/lmms-eval/temp/lmms-eval.toml 
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
 #SBATCH --time=12:00:00
-#SBATCH --output=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_omni_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_omni_%j.err
+#SBATCH --output=/iopsstor/scratch/cscs/%u/swissai/lmms-eval/logs/eval_apertus_omni_%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/%u/swissai/lmms-eval/logs/eval_apertus_omni_%j.err
 
-TASKS="mme" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
-BATCH_SIZE=1
+TASKS="ai2d" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
+BATCH_SIZE=64
 MODEL="apertus_omni"
 OFFLINE_DATASETS="true"
-
+TOKENIZER_PATH="${TOKENIZER_PATH:-/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_instruct}"
+export VLLM_TRACE_FUNCTION=1
 # Required runtime args for apertus_omni adapter:
 # - model_descriptor=<HF model id or local path>
 # Optional:
@@ -61,6 +62,13 @@ if [ -z "${MODEL_ARGS}" ]; then
     exit 1
 fi
 
+if [[ "${MODEL_ARGS}" != *"tokenizer_path="* ]]; then
+    MODEL_ARGS="${MODEL_ARGS},tokenizer_path=${TOKENIZER_PATH}"
+fi
+if [[ "${MODEL_ARGS}" != *"tokenizer="* ]]; then
+    MODEL_ARGS="${MODEL_ARGS},tokenizer=${TOKENIZER_PATH}"
+fi
+
 # Automatically get number of visible GPUs
 NUM_GPUS=$(echo "$CUDA_VISIBLE_DEVICES" | awk -F',' '{print NF}')
 echo "Number of GPUs available: $NUM_GPUS"
@@ -80,7 +88,9 @@ echo "Output-Path:          ${RES_PATH}"
 echo "Eval-Repo-Location:   ${EVAL_DIR}"
 echo "========================================"
 echo ""
-
+cd vllm-omni || exit
+python3 -m pip install -e . --no-build-isolation --no-deps
+cd .. || exit
 # Run evaluation command
 echo "Running LM evaluation..."
 echo "### Setup packages & environment ###"

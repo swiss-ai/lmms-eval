@@ -111,7 +111,7 @@ reka = [
     "reka-api",
 ]
 qwen = [
-    "decord",
+ #   "decord",
     "qwen_vl_utils",
 ]
 mmsearch = [

@@ -59,13 +59,14 @@ class ApertusOmniBaseModel(lmms):
         stage_init_timeout: int = 300,
         skip_text_only: bool = True,
         skip_multi_image: bool = True,
-        vq_hub: str = "BAAI/Emu3-VisionTokenizer",
+        vq_hub: str = "BAAI/Emu3.5-VisionTokenizer",
         vision_tokenizer_device: str = "cuda:0",
         vision_tokenizer_dtype: str = "bfloat16",
-        emu_min_pixels: int = 128 * 128,
+        emu_min_pixels: int = 512 * 512,
         emu_max_pixels: int = 1024 * 1024,
         vq_trust_remote_code: bool = True,
         image_placeholder: str = "<|image|>",
+        tokenizer_path: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__()
@@ -95,6 +96,16 @@ class ApertusOmniBaseModel(lmms):
                 except json.JSONDecodeError:
                     eval_logger.warning(f"Failed to parse JSON-like string for argument '{key}': {value}")
 
+        # Ensure Omni engine tokenization uses the intended tokenizer.
+        # `tokenizer_path` is the public lmms-eval argument, while vLLM expects `tokenizer`.
+        if tokenizer_path is None:
+            tokenizer_path = kwargs.pop("tokenizer_path", None)
+        else:
+            # Avoid passing an unused extra kwarg into Omni.
+            kwargs.pop("tokenizer_path", None)
+        if tokenizer_path is not None:
+            kwargs.setdefault("tokenizer", tokenizer_path)
+
         os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
         accelerator = Accelerator()
         if accelerator.num_processes > 1:
@@ -121,6 +132,8 @@ class ApertusOmniBaseModel(lmms):
         self.emu_max_pixels = int(emu_max_pixels)
         self.vq_trust_remote_code = bool(vq_trust_remote_code)
         self.image_placeholder = image_placeholder
+        self.tokenizer_path = str(kwargs.get("tokenizer", model_descriptor))
+        eval_logger.info(f"ApertusOmni tokenizer path: {self.tokenizer_path}")
 
         self.client = Omni(
             model=model_descriptor,
