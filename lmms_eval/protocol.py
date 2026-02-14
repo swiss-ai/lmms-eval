@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Literal, Union
 
 import numpy as np
 import torch
-from decord import VideoReader, cpu
+# from decord import VideoReader, cpu
 from PIL import Image
 from pydantic import BaseModel
 
