@@ -62,8 +62,8 @@ class ApertusOmniBaseModel(lmms):
         vq_hub: str = "BAAI/Emu3.5-VisionTokenizer",
         vision_tokenizer_device: str = "cuda:0",
         vision_tokenizer_dtype: str = "bfloat16",
-        emu_min_pixels: int = 512 * 512,
-        emu_max_pixels: int = 1024 * 1024,
+        emu_min_pixels: int = 256 * 256,
+        emu_max_pixels: int = 1400 * 1400,
         vq_trust_remote_code: bool = True,
         image_placeholder: str = "<|image|>",
         tokenizer_path: str | None = None,
@@ -119,6 +119,8 @@ class ApertusOmniBaseModel(lmms):
             self.accelerator = accelerator
             self._rank = self.accelerator.local_process_index
             self._world_size = self.accelerator.num_processes
+        # Evaluator gathers per-rank metadata tensors on lm.device in distributed mode.
+        self.device = self.accelerator.device
 
         self.model_descriptor = model_descriptor
         self.stage_configs_path = resolved_stage_config
@@ -203,7 +205,7 @@ class ApertusOmniBaseModel(lmms):
     @staticmethod
     def _normalize_gen_kwargs(gen_kwargs: dict[str, Any] | None = None) -> dict[str, Any]:
         gen = dict(gen_kwargs or {})
-        gen.setdefault("max_new_tokens", 4096)
+        gen.setdefault("max_new_tokens", 1024)
         gen.setdefault("temperature", 0)
         gen.setdefault("top_p", 0.95)
         return gen
