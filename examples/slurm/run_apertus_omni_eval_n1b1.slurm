@@ -7,11 +7,11 @@
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
-#SBATCH --time=16:00:00
+#SBATCH --time=12:00:00
 #SBATCH --output=/iopsstor/scratch/cscs/%u/swissai/lmms-eval/logs/eval_apertus_omni_%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/%u/swissai/lmms-eval/logs/eval_apertus_omni_%j.err
 
-TASKS="ai2d" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
+TASKS="pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
 BATCH_SIZE=512
 MODEL="apertus_omni"
 OFFLINE_DATASETS="true"
@@ -24,6 +24,8 @@ TOKENIZER_PATH="${TOKENIZER_PATH:-/capstor/store/cscs/swissai/infra01/MLLM/token
 MODEL_ARGS=""
 export PYTHONPATH="/iopsstor/scratch/cscs/$USER/swissai/vllm-omni:${PYTHONPATH}"
 export APERTUS_OMNI_STAGE_CONFIG="/iopsstor/scratch/cscs/$USER/swissai/vllm-omni/vllm_omni/model_executor/stage_configs/apertus.yaml"
+export VLLM_OMNI_APERTUS_IMAGE_TOKEN_CACHE_DIR="/iopsstor/scratch/cscs/$USER/swissai/cache/image_tokens/"
+mkdir -p "${VLLM_OMNI_APERTUS_IMAGE_TOKEN_CACHE_DIR}"
 
 RES_PATH="/iopsstor/scratch/cscs/$USER/swissai/results/lmms_eval/apertus_omni_results/"
 EVAL_DIR=/iopsstor/scratch/cscs/$USER/swissai/lmms-eval
@@ -102,7 +104,7 @@ echo "Installing task-specific dependencies..."
 source "${EVAL_DIR}/examples/install_task_deps.sh" "${TASKS}" "${EVAL_DIR}"
 
 # vLLM-Omni should run as a single front-end process; inherited DDP env vars can
-
+pip install ipdb jieba distance apted lxml zss nltk
 python3 -m lmms_eval \
     --model "${MODEL}" \
     --model_args "${MODEL_ARGS}" \
