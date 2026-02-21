@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, List, Tuple
 
@@ -205,7 +206,7 @@ class ApertusOmniChat(ApertusOmniBaseModel):
 
         batch_size = self.batch_size_per_gpu
         batched_requests = [requests[i : i + batch_size] for i in range(0, len(requests), batch_size)]
-        for batch_requests in batched_requests:
+        for batch_idx, batch_requests in enumerate(batched_requests, start=1):
             batch_outputs = [""] * len(batch_requests)
             batched_inputs: list[tuple[int, dict[str, Any]]] = []
             sampling_params_dict: dict[str, Any] | None = None
@@ -231,7 +232,18 @@ class ApertusOmniChat(ApertusOmniBaseModel):
             if batched_inputs and sampling_params_dict is not None:
                 sampling_params = self._build_sampling_params(sampling_params_dict)
                 prompt_dicts = [entry[1] for entry in batched_inputs]
+                if self.rank == 0:
+                    eval_logger.info(
+                        f"ApertusOmniChat: running batch {batch_idx}/{len(batched_requests)} "
+                        f"with {len(prompt_dicts)} requests"
+                    )
+                batch_t0 = time.time()
                 response_text = self._generate_batch(prompt_dicts, sampling_params)
+                if self.rank == 0:
+                    eval_logger.info(
+                        f"ApertusOmniChat: finished batch {batch_idx}/{len(batched_requests)} in "
+                        f"{time.time() - batch_t0:.2f}s"
+                    )
 
                 for (idx, prompt_dict), text in zip(batched_inputs, response_text):
                     batch_outputs[idx] = text

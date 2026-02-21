@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import copy
 import json
 import os
+import uuid
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -17,9 +20,9 @@ except ImportError:
     SamplingParams = None
 
 try:
-    from vllm_omni.entrypoints.omni import Omni
+    from vllm_omni.entrypoints.async_omni import AsyncOmni
 except ImportError:
-    Omni = None
+    AsyncOmni = None
 
 
 def _default_apertus_stage_config_path() -> str | None:
@@ -70,7 +73,7 @@ class ApertusOmniBaseModel(lmms):
         **kwargs: Any,
     ) -> None:
         super().__init__()
-        if Omni is None:
+        if AsyncOmni is None:
             raise ImportError(
                 "vllm_omni is required for Apertus Omni adapters. "
                 "Install vllm-omni or set PYTHONPATH to include it."
@@ -137,14 +140,19 @@ class ApertusOmniBaseModel(lmms):
         self.tokenizer_path = str(kwargs.get("tokenizer", model_descriptor))
         eval_logger.info(f"ApertusOmni tokenizer path: {self.tokenizer_path}")
 
-        self.client = Omni(
-            model=model_descriptor,
-            stage_configs_path=resolved_stage_config,
-            trust_remote_code=trust_remote_code,
-            log_stats=log_stats,
-            stage_init_timeout=stage_init_timeout,
-            **kwargs,
-        )
+        self._async_loop = asyncio.new_event_loop()
+        previous_loop = self._swap_event_loop(self._async_loop)
+        try:
+            self.client = AsyncOmni(
+                model=model_descriptor,
+                stage_configs_path=resolved_stage_config,
+                trust_remote_code=trust_remote_code,
+                log_stats=log_stats,
+                stage_init_timeout=stage_init_timeout,
+                **kwargs,
+            )
+        finally:
+            self._swap_event_loop(previous_loop)
 
     @property
     def rank(self) -> int:
@@ -264,24 +272,74 @@ class ApertusOmniBaseModel(lmms):
         text = getattr(request_output, "text", None)
         return text if isinstance(text, str) else ""
 
+    @staticmethod
+    def _swap_event_loop(new_loop: asyncio.AbstractEventLoop | None) -> asyncio.AbstractEventLoop | None:
+        try:
+            previous_loop = asyncio.get_event_loop()
+        except RuntimeError:
+            previous_loop = None
+        asyncio.set_event_loop(new_loop)
+        return previous_loop
+
+    def _run_on_internal_loop(self, awaitable: Any) -> Any:
+        if getattr(self, "_async_loop", None) is None or self._async_loop.is_closed():
+            raise RuntimeError("Apertus Omni async loop is unavailable.")
+        if self._async_loop.is_running():
+            raise RuntimeError("Apertus Omni async loop is already running.")
+        previous_loop = self._swap_event_loop(self._async_loop)
+        try:
+            return self._async_loop.run_until_complete(awaitable)
+        finally:
+            self._swap_event_loop(previous_loop)
+
+    async def _generate_batch_async(self, prompt_dicts: list[dict[str, Any]], sampling_params: Any) -> list[str]:
+        async def _run_single(prompt_dict: dict[str, Any], index: int) -> str:
+            request_id = f"lmms-apertus-{self.rank}-{index}-{uuid.uuid4().hex}"
+            final_output: Any = None
+            async for output in self.client.generate(
+                prompt=prompt_dict,
+                request_id=request_id,
+                sampling_params_list=[copy.deepcopy(sampling_params)],
+                output_modalities=["text"],
+            ):
+                final_output = output
+            if final_output is None:
+                return ""
+            return self._extract_text_from_omni_output(final_output)
+
+        tasks = [asyncio.create_task(_run_single(prompt_dict, idx)) for idx, prompt_dict in enumerate(prompt_dicts)]
+        return await asyncio.gather(*tasks)
+
     def _generate_batch(self, prompt_dicts: list[dict[str, Any]], sampling_params: Any) -> list[str]:
         if not prompt_dicts:
             return []
-        outputs = self.client.generate(
-            prompts=prompt_dicts,
-            sampling_params_list=[sampling_params],
-            use_tqdm=False,
-        )
-        return [self._extract_text_from_omni_output(output) for output in outputs]
+        return self._run_on_internal_loop(self._generate_batch_async(prompt_dicts, sampling_params))
 
     def close(self) -> None:
         if getattr(self, "client", None) is not None:
             try:
-                self.client.close()
+                previous_loop = self._swap_event_loop(self._async_loop)
+                try:
+                    self.client.shutdown()
+                finally:
+                    self._swap_event_loop(previous_loop)
             except Exception as e:
                 eval_logger.warning(f"Failed to close Omni client cleanly: {e}")
             finally:
                 self.client = None
+        if getattr(self, "_async_loop", None) is not None and not self._async_loop.is_closed():
+            previous_loop = self._swap_event_loop(self._async_loop)
+            try:
+                pending = [task for task in asyncio.all_tasks(loop=self._async_loop) if not task.done()]
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    self._async_loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except Exception as e:
+                eval_logger.warning(f"Failed to drain Apertus async loop cleanly: {e}")
+            finally:
+                self._swap_event_loop(previous_loop)
+                self._async_loop.close()
 
     def __del__(self) -> None:
         try:

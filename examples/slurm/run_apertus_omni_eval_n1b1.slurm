@@ -2,6 +2,7 @@
 #SBATCH --account=infra01
 #SBATCH --job-name=eval-apertus-omni
 #SBATCH --environment=/iopsstor/scratch/cscs/anunay/swissai/lmms-eval/temp/lmms-eval.toml 
+#SBATCH --reservation=PA-2338-RL
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --partition=normal
@@ -12,7 +13,8 @@
 #SBATCH --error=/iopsstor/scratch/cscs/%u/swissai/lmms-eval/logs/eval_apertus_omni_%j.err
 
 TASKS="pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
-BATCH_SIZE=512
+# TASKS="ocrbench_v2"
+BATCH_SIZE=256
 MODEL="apertus_omni"
 OFFLINE_DATASETS="true"
 TOKENIZER_PATH="${TOKENIZER_PATH:-/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_instruct}"
@@ -103,8 +105,11 @@ uv pip install -e ".[all]" --system
 echo "Installing task-specific dependencies..."
 source "${EVAL_DIR}/examples/install_task_deps.sh" "${TASKS}" "${EVAL_DIR}"
 
-# vLLM-Omni should run as a single front-end process; inherited DDP env vars can
-pip install ipdb jieba distance apted lxml zss nltk
+pip install ipdb jieba distance apted lxml zss nltk datasets sacrebleu Polygon3
+export NLTK_DATA="${NLTK_DATA:-/iopsstor/scratch/cscs/$USER/swissai/nltk_data}"
+mkdir -p "${NLTK_DATA}"
+python3 -c "import nltk, os; nltk.download('wordnet', download_dir=os.environ['NLTK_DATA'], quiet=True)"
+
 python3 -m lmms_eval \
     --model "${MODEL}" \
     --model_args "${MODEL_ARGS}" \
