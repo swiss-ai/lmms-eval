@@ -124,18 +124,10 @@ class ApertusOmniChat(ApertusOmniBaseModel):
             image_count = len(image_data) if isinstance(image_data, list) else (1 if image_data is not None else 0)
 
             sample_idx = self._debug_logged_samples + 1
-            eval_logger.info(
-                f"[ApertusOmniChat Debug {sample_idx}/{self.debug_samples}] "
-                f"task={task}, split={split}, doc_id={doc_id}, images={image_count}, "
-                f"prompt_chars={len(prompt_text)}, output_chars={len(output_text)}"
-            )
+            eval_logger.info(f"[ApertusOmniChat Debug {sample_idx}/{self.debug_samples}] " f"task={task}, split={split}, doc_id={doc_id}, images={image_count}, " f"prompt_chars={len(prompt_text)}, output_chars={len(output_text)}")
             eval_logger.info(f"[ApertusOmniChat Debug {sample_idx}] gen_kwargs={gen_kwargs}")
-            eval_logger.info(
-                f"[ApertusOmniChat Debug {sample_idx}] input_prompt:\n{self._truncate_for_debug(prompt_text)}"
-            )
-            eval_logger.info(
-                f"[ApertusOmniChat Debug {sample_idx}] output_text:\n{self._truncate_for_debug(output_text)}"
-            )
+            eval_logger.info(f"[ApertusOmniChat Debug {sample_idx}] input_prompt:\n{self._truncate_for_debug(prompt_text)}")
+            eval_logger.info(f"[ApertusOmniChat Debug {sample_idx}] output_text:\n{self._truncate_for_debug(output_text)}")
             self._debug_logged_samples += 1
         except Exception as e:
             eval_logger.warning(f"ApertusOmniChat: debug sample logging failed: {e}")
@@ -233,17 +225,11 @@ class ApertusOmniChat(ApertusOmniBaseModel):
                 sampling_params = self._build_sampling_params(sampling_params_dict)
                 prompt_dicts = [entry[1] for entry in batched_inputs]
                 if self.rank == 0:
-                    eval_logger.info(
-                        f"ApertusOmniChat: running batch {batch_idx}/{len(batched_requests)} "
-                        f"with {len(prompt_dicts)} requests"
-                    )
+                    eval_logger.info(f"ApertusOmniChat: running batch {batch_idx}/{len(batched_requests)} " f"with {len(prompt_dicts)} requests")
                 batch_t0 = time.time()
                 response_text = self._generate_batch(prompt_dicts, sampling_params)
                 if self.rank == 0:
-                    eval_logger.info(
-                        f"ApertusOmniChat: finished batch {batch_idx}/{len(batched_requests)} in "
-                        f"{time.time() - batch_t0:.2f}s"
-                    )
+                    eval_logger.info(f"ApertusOmniChat: finished batch {batch_idx}/{len(batched_requests)} in " f"{time.time() - batch_t0:.2f}s")
 
                 for (idx, prompt_dict), text in zip(batched_inputs, response_text):
                     batch_outputs[idx] = text

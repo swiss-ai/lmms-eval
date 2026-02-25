@@ -74,20 +74,13 @@ class ApertusOmniBaseModel(lmms):
     ) -> None:
         super().__init__()
         if AsyncOmni is None:
-            raise ImportError(
-                "vllm_omni is required for Apertus Omni adapters. "
-                "Install vllm-omni or set PYTHONPATH to include it."
-            )
+            raise ImportError("vllm_omni is required for Apertus Omni adapters. " "Install vllm-omni or set PYTHONPATH to include it.")
         if SamplingParams is None:
             raise ImportError("vllm is required for Apertus Omni adapters (SamplingParams import failed).")
 
         resolved_stage_config = stage_configs_path or _default_apertus_stage_config_path()
         if resolved_stage_config is None:
-            raise ValueError(
-                "Could not resolve Apertus stage config. Provide model_args "
-                "'stage_configs_path=/path/to/vllm_omni/model_executor/stage_configs/apertus.yaml' "
-                "or set APERTUS_OMNI_STAGE_CONFIG."
-            )
+            raise ValueError("Could not resolve Apertus stage config. Provide model_args " "'stage_configs_path=/path/to/vllm_omni/model_executor/stage_configs/apertus.yaml' " "or set APERTUS_OMNI_STAGE_CONFIG.")
         if not Path(resolved_stage_config).exists():
             raise FileNotFoundError(f"Apertus stage config not found: {resolved_stage_config}")
 
@@ -166,12 +159,7 @@ class ApertusOmniBaseModel(lmms):
     def _invoke_extractor(extractor: Any, sample: Any) -> Any:
         if callable(extractor):
             return extractor(sample)
-        if (
-            isinstance(extractor, Sequence)
-            and not isinstance(extractor, (str, bytes))
-            and extractor
-            and callable(extractor[0])
-        ):
+        if isinstance(extractor, Sequence) and not isinstance(extractor, (str, bytes)) and extractor and callable(extractor[0]):
             return extractor[0](sample)
         raise TypeError(f"Unsupported extractor type: {type(extractor)}")
 

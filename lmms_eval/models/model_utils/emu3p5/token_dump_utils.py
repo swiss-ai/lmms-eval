@@ -7,7 +7,6 @@ from typing import Any, Mapping, Sequence
 
 from loguru import logger as eval_logger
 
-
 TOKENIZED_SAMPLES_DUMP_ENV_VAR = "LMMS_EVAL_EMU3P5_TOKENIZED_SAMPLES_DUMP_PATH"
 
 
@@ -35,6 +34,4 @@ def dump_tokenized_samples_jsonl(
                 dump_file.write(json.dumps(sample, ensure_ascii=False))
                 dump_file.write("\n")
     except OSError as exc:
-        eval_logger.warning(
-            f"Failed writing EMU3.5 tokenized-sample dump to {path}: {exc}"
-        )
+        eval_logger.warning(f"Failed writing EMU3.5 tokenized-sample dump to {path}: {exc}")
