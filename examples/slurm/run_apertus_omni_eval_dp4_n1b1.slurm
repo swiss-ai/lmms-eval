@@ -1,21 +1,27 @@
 #!/bin/bash
 #SBATCH --account=infra01
 #SBATCH --job-name=eval-apertus-omni-dp4
-#SBATCH --environment=/iopsstor/scratch/cscs/anunay/swissai/lmms-eval/temp/lmms-eval.toml
+#SBATCH --environment=/iopsstor/scratch/cscs/anunay/swissai/lmms-vllm-omni-final/lmms-eval.toml
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
 #SBATCH --time=12:00:00
-#SBATCH --output=/iopsstor/scratch/cscs/%u/swissai/lmms-eval/logs/eval_apertus_omni_dp4_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/%u/swissai/lmms-eval/logs/eval_apertus_omni_dp4_%j.err
+#SBATCH --output=/iopsstor/scratch/cscs/%u/swissai/test/lmms-eval/logs/eval_apertus_omni_dp4_%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/%u/swissai/test/lmms-eval/logs/eval_apertus_omni_dp4_%j.err
 
 set -euo pipefail
 # export VLLM_LOGGING_LEVEL=DEBUG
 # export NCCL_DEBUG=INFO
 # export NCCL_DEBUG_SUBSYS=INIT,COLL
 # export TORCH_DISTRIBUTED_DEBUG=DETAIL
+
+# ENSURE THESE VARIABLES ARE SET IN THE ENVIRONMENT OR PROVIDE DEFAULTS
+ROOT_DIR="/iopsstor/scratch/cscs/$USER/swissai/test"
+VLLM_OMNI_DIR="${ROOT_DIR}/vllm-omni"
+EVAL_DIR="${ROOT_DIR}/lmms-eval"
+RES_PATH="${ROOT_DIR}/results/lmms_eval/apertus_omni_results/"
 
 TASKS="pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
 BATCH_SIZE=4096
@@ -28,10 +34,6 @@ VISION_TOKENIZER_DEVICE="${VISION_TOKENIZER_DEVICE:-cuda}"
 INIT_TIMEOUT="${INIT_TIMEOUT:-1800}"
 STAGE_INIT_TIMEOUT="${STAGE_INIT_TIMEOUT:-1800}"
 
-ROOT_DIR="/iopsstor/scratch/cscs/$USER/swissai"
-VLLM_OMNI_DIR="${ROOT_DIR}/vllm-omni"
-EVAL_DIR="${ROOT_DIR}/lmms-eval"
-RES_PATH="${ROOT_DIR}/results/lmms_eval/apertus_omni_results/"
 TOKENIZER_PATH="${TOKENIZER_PATH:-/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_instruct}"
 STAGE_CONFIG_PATH="${STAGE_CONFIG_PATH:-${VLLM_OMNI_DIR}/vllm_omni/model_executor/stage_configs/apertus_dp4.yaml}"
 
