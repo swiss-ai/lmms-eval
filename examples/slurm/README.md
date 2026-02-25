@@ -70,6 +70,10 @@ EVAL_DIR="${ROOT_DIR}/lmms-eval"
 RES_PATH="${ROOT_DIR}/results/lmms_eval/apertus_omni_results/"
 ```
 
+If you want to change the vLLM-Omni launch configuration, change only the stage config file:
+
+- `vllm-omni/vllm_omni/model_executor/stage_configs/apertus_dp4.yaml`
+
 ## 5. Submit the job
 
 From `${ROOT_DIR}` run:
