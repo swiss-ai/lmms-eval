@@ -3,7 +3,10 @@ import re
 from io import BytesIO
 from typing import List, Optional, Tuple, Union
 
-import decord
+try:
+    import decord
+except ImportError:
+    decord = None
 import numpy as np
 import torch
 from accelerate import Accelerator, DistributedType
@@ -242,6 +245,8 @@ class Qwen3_VL(lmms):
                 if visual_list[i] is not None:
                     for visual in visual_list[i]:
                         if isinstance(visual, str) and visual.endswith((".mp4", ".avi", ".mov")):  # Video file
+                            if decord is None:
+                                raise ImportError("Video tasks require the 'decord' package: pip install decord")
                             vr = decord.VideoReader(visual)
                             first_frame = vr[0].asnumpy()
                             height, width = first_frame.shape[:2]

@@ -1,0 +1,4 @@
+group: medevalkit
+task:
+  - vqa_rad
+  - path_vqa
