@@ -6,6 +6,7 @@ import PIL
 import torch
 from accelerate import Accelerator, DistributedType
 from accelerate.state import AcceleratorState
+
 try:
     from decord import VideoReader, cpu
 except ImportError:

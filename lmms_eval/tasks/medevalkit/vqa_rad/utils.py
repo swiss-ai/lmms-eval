@@ -1,12 +1,13 @@
 import re
 from typing import Any, Dict, List, Optional
 
-from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
 from rouge import Rouge
 
 # ---------------------------------------------------------------------------
 # Answer extraction
 # ---------------------------------------------------------------------------
+
 
 def _extract_boxed(text: str) -> Optional[str]:
     """Extract content from \\boxed{...}."""
@@ -32,6 +33,7 @@ def _clean_response(response: str) -> str:
 # ---------------------------------------------------------------------------
 # Judgement helpers
 # ---------------------------------------------------------------------------
+
 
 def _judge_yesno(answer: str, response: str) -> bool:
     """Return True if response matches the yes/no ground truth."""
@@ -84,7 +86,10 @@ def _judge_open(answer: str, response: str) -> Dict[str, float]:
         precision = recall = f1 = 0.0
     return {
         "em": em,
-        "bleu1": b1, "bleu2": b2, "bleu3": b3, "bleu4": b4,
+        "bleu1": b1,
+        "bleu2": b2,
+        "bleu3": b3,
+        "bleu4": b4,
         "rouge1": rouge["rouge-1"]["f"],
         "rouge2": rouge["rouge-2"]["f"],
         "rougel": rouge["rouge-l"]["f"],
@@ -97,6 +102,7 @@ def _judge_open(answer: str, response: str) -> Dict[str, float]:
 # ---------------------------------------------------------------------------
 # lmms-eval interface
 # ---------------------------------------------------------------------------
+
 
 def vqa_rad_doc_to_visual(doc: Dict[str, Any]):
     return [doc["image"].convert("RGB")]
@@ -126,8 +132,13 @@ def vqa_rad_process_results(doc: Dict[str, Any], result: List[str]) -> Dict[str,
         return {
             "close_accuracy": correct,
             "open_em": None,
-            "bleu1": None, "bleu2": None, "bleu3": None, "bleu4": None,
-            "rouge1": None, "rouge2": None, "rougel": None,
+            "bleu1": None,
+            "bleu2": None,
+            "bleu3": None,
+            "bleu4": None,
+            "rouge1": None,
+            "rouge2": None,
+            "rougel": None,
             "f1": None,
         }
     else:
@@ -135,9 +146,12 @@ def vqa_rad_process_results(doc: Dict[str, Any], result: List[str]) -> Dict[str,
         return {
             "close_accuracy": None,
             "open_em": m["em"],
-            "bleu1": m["bleu1"], "bleu2": m["bleu2"],
-            "bleu3": m["bleu3"], "bleu4": m["bleu4"],
-            "rouge1": m["rouge1"], "rouge2": m["rouge2"],
+            "bleu1": m["bleu1"],
+            "bleu2": m["bleu2"],
+            "bleu3": m["bleu3"],
+            "bleu4": m["bleu4"],
+            "rouge1": m["rouge1"],
+            "rouge2": m["rouge2"],
             "rougel": m["rougel"],
             "f1": m["f1"],
         }
@@ -147,18 +161,47 @@ def vqa_rad_process_results(doc: Dict[str, Any], result: List[str]) -> Dict[str,
 # Aggregation helpers (filter None values from the other question type)
 # ---------------------------------------------------------------------------
 
+
 def _mean(items):
     valid = [x for x in items if x is not None]
     return sum(valid) / len(valid) if valid else 0.0
 
 
-def agg_close_accuracy(items):  return _mean(items)
-def agg_open_em(items):         return _mean(items)
-def agg_bleu1(items):           return _mean(items)
-def agg_bleu2(items):           return _mean(items)
-def agg_bleu3(items):           return _mean(items)
-def agg_bleu4(items):           return _mean(items)
-def agg_rouge1(items):          return _mean(items)
-def agg_rouge2(items):          return _mean(items)
-def agg_rougel(items):          return _mean(items)
-def agg_f1(items):              return _mean(items)
+def agg_close_accuracy(items):
+    return _mean(items)
+
+
+def agg_open_em(items):
+    return _mean(items)
+
+
+def agg_bleu1(items):
+    return _mean(items)
+
+
+def agg_bleu2(items):
+    return _mean(items)
+
+
+def agg_bleu3(items):
+    return _mean(items)
+
+
+def agg_bleu4(items):
+    return _mean(items)
+
+
+def agg_rouge1(items):
+    return _mean(items)
+
+
+def agg_rouge2(items):
+    return _mean(items)
+
+
+def agg_rougel(items):
+    return _mean(items)
+
+
+def agg_f1(items):
+    return _mean(items)
