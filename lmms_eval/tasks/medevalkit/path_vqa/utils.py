@@ -159,46 +159,6 @@ def path_vqa_process_results(doc: Dict[str, Any], result: List[str]) -> Dict[str
 # ---------------------------------------------------------------------------
 
 
-def _mean(items):
+def agg_mean(items):
     valid = [x for x in items if x is not None]
     return sum(valid) / len(valid) if valid else 0.0
-
-
-def agg_close_accuracy(items):
-    return _mean(items)
-
-
-def agg_open_em(items):
-    return _mean(items)
-
-
-def agg_bleu1(items):
-    return _mean(items)
-
-
-def agg_bleu2(items):
-    return _mean(items)
-
-
-def agg_bleu3(items):
-    return _mean(items)
-
-
-def agg_bleu4(items):
-    return _mean(items)
-
-
-def agg_rouge1(items):
-    return _mean(items)
-
-
-def agg_rouge2(items):
-    return _mean(items)
-
-
-def agg_rougel(items):
-    return _mean(items)
-
-
-def agg_f1(items):
-    return _mean(items)

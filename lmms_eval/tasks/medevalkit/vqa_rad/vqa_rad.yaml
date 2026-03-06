@@ -18,25 +18,25 @@ process_results: !function utils.vqa_rad_process_results
 
 metric_list:
   - metric: close_accuracy
-    aggregation: !function utils.agg_close_accuracy
+    aggregation: !function utils.agg_mean
     higher_is_better: true
   - metric: open_em
-    aggregation: !function utils.agg_open_em
+    aggregation: !function utils.agg_mean
     higher_is_better: true
   - metric: bleu1
-    aggregation: !function utils.agg_bleu1
+    aggregation: !function utils.agg_mean
     higher_is_better: true
   - metric: bleu4
-    aggregation: !function utils.agg_bleu4
+    aggregation: !function utils.agg_mean
     higher_is_better: true
   - metric: rouge1
-    aggregation: !function utils.agg_rouge1
+    aggregation: !function utils.agg_mean
     higher_is_better: true
   - metric: rougel
-    aggregation: !function utils.agg_rougel
+    aggregation: !function utils.agg_mean
     higher_is_better: true
   - metric: f1
-    aggregation: !function utils.agg_f1
+    aggregation: !function utils.agg_mean
     higher_is_better: true
 
 metadata:

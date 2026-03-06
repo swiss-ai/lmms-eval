@@ -4,7 +4,10 @@ import time
 from io import BytesIO
 from typing import List, Optional, Tuple, Union
 
-import decord
+try:
+    import decord
+except ImportError:
+    decord = None
 import numpy as np
 import torch
 from accelerate import Accelerator, DistributedType
