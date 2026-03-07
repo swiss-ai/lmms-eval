@@ -1,11 +1,11 @@
-from typing import List, Optional, Union
+from typing import Optional, Union
 
 import torch
 from loguru import logger as eval_logger
 from transformers import AutoTokenizer, LlamaForCausalLM
 
 from lmms_eval.api.registry import register_model
-from lmms_eval.models.chat.emu3_encoder_model import EMU3EncoderModel
+from lmms_eval.models.chat.emu_encoder_model import EMU3EncoderModel
 
 
 @register_model("llama_emu3")
@@ -94,7 +94,28 @@ class LlamaEmu3Chat(EMU3EncoderModel):
         if tokenizer.pad_token is None:
             eval_logger.warning("No pad_token found in tokenizer, setting pad_token to eos_token.")
             tokenizer.pad_token = tokenizer.eos_token
+
+        sft_eot_token_id = tokenizer.init_kwargs.get("sft_eot_token")
+        if sft_eot_token_id is not None:
+            self._sft_eot_token_id = sft_eot_token_id
+            eval_logger.info(f"Using sft_eot_token_id={sft_eot_token_id} for generation stopping")
+        else:
+            self._sft_eot_token_id = None
+            eval_logger.warning("No sft_eot_token found in tokenizer init_kwargs. " "Generation will only stop at eos_token_id.")
+
         return tokenizer
+
+    @property
+    def generation_eos_token_id(self):
+        """Return both eos_token_id and sft_eot_token_id for generation."""
+        eos = self.tokenizer.eos_token_id
+        ids = list(eos) if isinstance(eos, list) else [eos]
+        if self._sft_eot_token_id is not None:
+            if isinstance(self._sft_eot_token_id, list):
+                ids.extend(self._sft_eot_token_id)
+            else:
+                ids.append(self._sft_eot_token_id)
+        return ids
 
     def _load_llm(self, model_path: str, **kwargs) -> LlamaForCausalLM:
         """Load Llama causal language model."""
@@ -104,13 +125,6 @@ class LlamaEmu3Chat(EMU3EncoderModel):
     def image_placeholder(self) -> str:
         """Llama uses <|image|> as placeholder in chat template."""
         return "<|image|>"
-
-    def _chat_transform(self, hf_messages: list[dict]) -> list[dict]:
-        """
-        Llama doesn't require message transformation.
-        Return messages unchanged.
-        """
-        return hf_messages
 
     @property
     def max_length(self):
