@@ -101,6 +101,7 @@ AVAILABLE_CHAT_TEMPLATE_MODELS = {
     "vllm_generate": "VLLMGenerate",
     "sglang": "Sglang",
     "huggingface": "Huggingface",
+    "chameleon": "Chameleon",
     "async_openai": "AsyncOpenAIChat",
     "longvila": "LongVila",
     "llava_onevision1_5": "Llava_OneVision1_5",
