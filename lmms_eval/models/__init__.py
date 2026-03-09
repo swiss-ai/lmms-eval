@@ -1,7 +1,6 @@
 import importlib
 import os
 import sys
-from typing import Literal
 
 from loguru import logger
 
@@ -15,6 +14,8 @@ logger.add(sys.stdout, level="WARNING", format=log_format)
 
 AVAILABLE_SIMPLE_MODELS = {
     "aero": "Aero",
+    "apertus_emu3_simple": "ApertusEmu3Simple",
+    "apertus_emu3p5_simple": "ApertusEmu3p5Simple",
     "aria": "Aria",
     "auroracap": "AuroraCap",
     "bagel": "Bagel",
@@ -103,6 +104,12 @@ AVAILABLE_CHAT_TEMPLATE_MODELS = {
     "async_openai": "AsyncOpenAIChat",
     "longvila": "LongVila",
     "llava_onevision1_5": "Llava_OneVision1_5",
+    "emu3": "EMU3",
+    "emu3p5": "EMU3_5",
+    "llama_emu3": "LlamaEmu3Chat",
+    "llama_emu3p5": "LlamaEmu3p5Chat",
+    "apertus_emu3": "ApertusEmu3Chat",
+    "apertus_emu3p5": "ApertusEmu3p5Chat",
 }
 
 
