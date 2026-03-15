@@ -18,7 +18,7 @@ class OpenAIProvider(ServerInterface):
     def __init__(self, config: Optional[ServerConfig] = None):
         super().__init__(config)
         self.api_key = os.getenv("OPENAI_API_KEY", "")
-        self.api_url = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions/v1")
+        self.api_url = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1")
 
         # Initialize OpenAI client
         try:
@@ -92,7 +92,12 @@ class OpenAIProvider(ServerInterface):
             "Content-Type": "application/json",
         }
 
-        response = requests.post(self.api_url, headers=headers, json=payload, timeout=timeout)
+        base = self.api_url.rstrip("/")
+        if base.endswith("/chat/completions"):
+            url = base
+        else:
+            url = base + "/chat/completions"
+        response = requests.post(url, headers=headers, json=payload, timeout=timeout)
         response.raise_for_status()
         return response.json()
 
