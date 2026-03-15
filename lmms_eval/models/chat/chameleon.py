@@ -1,11 +1,11 @@
 import time
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Union
 
 import torch
 from accelerate import Accelerator, DistributedType
 from loguru import logger as eval_logger
 from tqdm import tqdm
-from transformers import AutoProcessor, ChameleonForConditionalGeneration
+from transformers import ChameleonForConditionalGeneration, ChameleonProcessor
 
 from lmms_eval import utils
 from lmms_eval.api.instance import Instance
@@ -35,6 +35,7 @@ class Chameleon(lmms):
         use_cache: bool = True,
         attn_implementation: Optional[str] = None,
         torch_dtype: Optional[str] = "bfloat16",
+        image_at_end: bool = False,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -61,13 +62,17 @@ class Chameleon(lmms):
 
         self._model = ChameleonForConditionalGeneration.from_pretrained(pretrained, **model_kwargs).eval()
 
-        self.processor = AutoProcessor.from_pretrained(pretrained)
+        self.processor = ChameleonProcessor.from_pretrained(pretrained)
         self.processor.tokenizer.padding_side = "left"
         self._tokenizer = self.processor.tokenizer
         self._config = self._model.config
         self._max_length = kwargs.get("max_length", 2048)
         self.batch_size_per_gpu = int(batch_size)
         self.use_cache = use_cache
+        self.image_at_end = image_at_end
+        self.debug_samples = kwargs.get("debug_samples", False)
+        self.num_debug_samples = int(kwargs.get("num_debug_samples", 5))
+        self._debug_samples_printed = 0
 
         if accelerator.num_processes > 1:
             assert accelerator.distributed_type in [
@@ -126,32 +131,30 @@ class Chameleon(lmms):
         return self._world_size
 
     def _format_prompt(self, chat_messages: ChatMessages) -> str:
-        """Format prompt, falling back to plain text if no chat template."""
-        hf_messages = chat_messages.to_hf_messages()
-        try:
-            return self.processor.tokenizer.apply_chat_template(
-                hf_messages,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
-        except Exception:
-            # Base models may lack a chat template; fall back to
-            # simple concatenation of text content.
-            parts = []
-            for msg in chat_messages.messages:
-                for content in msg.content:
-                    if content.type == "text":
-                        parts.append(content.text)
-            return "\n".join(parts)
+        """Format prompt with <image> placeholders for each image.
 
-    def flatten(self, input: list) -> list:
-        new_list = []
-        for i in input:
-            for j in i:
-                new_list.append(j)
-        return new_list
+        Each ``<image>`` token is followed by a newline, while text parts
+        are concatenated directly (matching VLMEvalKit's format).
 
-    def loglikelihood(self, requests: List[Instance]) -> List[Tuple[float, bool]]:
+        When image_at_end is True (default), all <image> placeholders are
+        placed after the text content. Otherwise they appear inline where
+        the image content blocks occur in the message.
+        """
+        parts: list[str] = []
+        image_count = 0
+        for msg in chat_messages.messages:
+            for content in msg.content:
+                if content.type == "text":
+                    parts.append(content.text)
+                elif content.type == "image":
+                    image_count += 1
+                    if not self.image_at_end:
+                        parts.append("<image>\n")
+        if self.image_at_end:
+            parts.append("<image>\n" * image_count)
+        return "".join(parts)
+
+    def loglikelihood(self, requests: List[Instance]) -> list[tuple[float, bool]]:
         raise NotImplementedError("Loglikelihood is not implemented for Chameleon")
 
     def generate_until(self, requests: List[Instance]) -> List[str]:
@@ -185,15 +188,14 @@ class Chameleon(lmms):
                 task,
                 split,
             ) = zip(*chunk)
-            chat_messages = [doc_to_messages[0](self.task_dict[task][split][ids]) for ids, task, split in zip(doc_id, task, split)]
-            chat_messages: List[ChatMessages] = [ChatMessages(**{"messages": message}) for message in chat_messages]
+            chat_messages = [doc_to_messages[idx](self.task_dict[t][s][ids]) for idx, (ids, t, s) in enumerate(zip(doc_id, task, split))]
+            chat_messages: List[ChatMessages] = [ChatMessages(messages=message) for message in chat_messages]
 
             # Extract images only (Chameleon does not support video/audio)
             images = []
             for messages in chat_messages:
-                image, _, _ = messages.extract_media()
-                images.append(image)
-            images = self.flatten(images)
+                batch_images, _, _ = messages.extract_media()
+                images.extend(batch_images)
 
             gen_kwargs = all_gen_kwargs[0]
 
@@ -201,16 +203,14 @@ class Chameleon(lmms):
             texts = [self._format_prompt(cm) for cm in chat_messages]
 
             # Build processor inputs (images only, no video/audio)
-            processor_kwargs: dict = {"text": texts, "return_tensors": "pt"}
-            if images:
-                processor_kwargs["images"] = images
+            processor_kwargs: dict = {
+                "text": texts,
+                "images": images if images else None,
+                "padding": True,
+                "return_tensors": "pt",
+            }
 
-            inputs = self.processor(**processor_kwargs, padding=True)
-
-            if self.device_map == "auto":
-                inputs = inputs.to("cuda")
-            else:
-                inputs = inputs.to(self.device)
+            inputs = self.processor(**processor_kwargs).to(device=self.device, dtype=torch.bfloat16)
 
             # Generation kwargs
             default_gen_kwargs = {
@@ -230,17 +230,18 @@ class Chameleon(lmms):
                 current_gen_kwargs["top_p"] = None
 
             start_time = time.time()
-            cont = self.model.generate(
-                **inputs,
-                eos_token_id=self.tokenizer.eos_token_id,
-                pad_token_id=pad_token_id,
-                do_sample=current_gen_kwargs["do_sample"],
-                temperature=current_gen_kwargs["temperature"],
-                top_p=current_gen_kwargs["top_p"],
-                num_beams=current_gen_kwargs["num_beams"],
-                max_new_tokens=current_gen_kwargs["max_new_tokens"],
-                use_cache=self.use_cache,
-            )
+            with torch.inference_mode():
+                cont = self.model.generate(
+                    **inputs,
+                    eos_token_id=self.tokenizer.eos_token_id,
+                    pad_token_id=pad_token_id,
+                    do_sample=current_gen_kwargs["do_sample"],
+                    temperature=current_gen_kwargs["temperature"],
+                    top_p=current_gen_kwargs["top_p"],
+                    num_beams=current_gen_kwargs["num_beams"],
+                    max_new_tokens=current_gen_kwargs["max_new_tokens"],
+                    use_cache=self.use_cache,
+                )
             end_time = time.time()
 
             generated_ids_trimmed = [out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, cont)]
@@ -253,13 +254,14 @@ class Chameleon(lmms):
             e2e_latency += end_time - start_time
             total_tokens += sum(len(ids) for ids in generated_ids_trimmed)
 
-            for ans, context in zip(answers, texts):
+            for i, (ans, context) in enumerate(zip(answers, texts)):
                 res.append(ans)
                 self.cache_hook.add_partial("generate_until", (context, gen_kwargs), ans)
                 pbar.update(1)
 
-                eval_logger.debug(f"Question: {context}")
-                eval_logger.debug(f"Response: {ans}")
+                if self.debug_samples and self._debug_samples_printed < self.num_debug_samples and self.rank == 0:
+                    self._debug_samples_printed += 1
+                    eval_logger.info(f"[DEBUG {self._debug_samples_printed}/" f"{self.num_debug_samples}] " f"Prompt: {context[:200]}... | " f"Answer: {ans}")
 
         res = re_ords.get_original(res)
 

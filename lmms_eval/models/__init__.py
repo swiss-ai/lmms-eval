@@ -23,7 +23,6 @@ AVAILABLE_SIMPLE_MODELS = {
     "claude": "Claude",
     "cogvlm2": "CogVLM2",
     "cambrians": "CambrianS",
-    "chameleon": "Chameleon",
     "egogpt": "EgoGPT",
     "from_log": "FromLog",
     "fuyu": "Fuyu",
@@ -111,6 +110,7 @@ AVAILABLE_CHAT_TEMPLATE_MODELS = {
     "llama_emu3p5": "LlamaEmu3p5Chat",
     "apertus_emu3": "ApertusEmu3Chat",
     "apertus_emu3p5": "ApertusEmu3p5Chat",
+    "chameleon": "Chameleon",
 }
 
 
