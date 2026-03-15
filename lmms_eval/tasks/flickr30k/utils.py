@@ -8,10 +8,19 @@ from pycocoevalcap.tokenizer.ptbtokenizer import PTBTokenizer
 from pycocotools.coco import COCO
 
 from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
+from lmms_eval.tasks._task_utils.polos_utils import polos_aggregation
 
 dir_name = os.path.dirname(os.path.abspath(__file__))
 
-FLICKR_METRICS = ["Bleu_4", "Bleu_3", "Bleu_2", "Bleu_1", "METEOR", "ROUGE_L", "CIDEr"]  # , "SPICE"]
+FLICKR_METRICS = [
+    "Bleu_4",
+    "Bleu_3",
+    "Bleu_2",
+    "Bleu_1",
+    "METEOR",
+    "ROUGE_L",
+    "CIDEr",
+]  # , "SPICE"]
 
 
 def flickr_doc_to_visual(doc):
@@ -36,11 +45,21 @@ def flickr_process_result(doc, result):
 
     data_dict = {"answer": doc["caption"], "pred": pred, "image_id": image_id}
 
-    return {f"flickr_{metric}": data_dict for metric in FLICKR_METRICS}
+    result_dict = {f"flickr_{metric}": data_dict for metric in FLICKR_METRICS}
+    result_dict["flickr_POLOS"] = {**data_dict, "image": doc.get("image")}
+    return result_dict
 
 
 def flickr_aggregation_result(results, metric, args):
-    scorers = [(Bleu(4), "Bleu_1"), (Bleu(4), "Bleu_2"), (Bleu(4), "Bleu_3"), (Bleu(4), "Bleu_4"), (Meteor(), "METEOR"), (Rouge(), "ROUGE_L"), (Cider(), "CIDEr")]  # , (Spice(), "SPICE")]
+    scorers = [
+        (Bleu(4), "Bleu_1"),
+        (Bleu(4), "Bleu_2"),
+        (Bleu(4), "Bleu_3"),
+        (Bleu(4), "Bleu_4"),
+        (Meteor(), "METEOR"),
+        (Rouge(), "ROUGE_L"),
+        (Cider(), "CIDEr"),
+    ]  # , (Spice(), "SPICE")]
     scorers_dict = {s[1]: s for s in scorers}
 
     stored_results = []
@@ -125,6 +144,10 @@ def flickr_cider(results, args):
 
 def flickr_spice(results, args):
     return flickr_aggregation_result(results, "SPICE", args)
+
+
+def flickr_polos(results, args):
+    return polos_aggregation(results, args)
 
 
 def flickr_test_process_result(doc, result):

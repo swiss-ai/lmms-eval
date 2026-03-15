@@ -7,10 +7,19 @@ from pycocoevalcap.tokenizer.ptbtokenizer import PTBTokenizer
 from pycocotools.coco import COCO
 
 from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
+from lmms_eval.tasks._task_utils.polos_utils import polos_aggregation
 
 dir_name = os.path.dirname(os.path.abspath(__file__))
 
-TEXTCAPS_METRICS = ["Bleu_4", "Bleu_3", "Bleu_2", "Bleu_1", "METEOR", "ROUGE_L", "CIDEr"]  # , "SPICE"]
+TEXTCAPS_METRICS = [
+    "Bleu_4",
+    "Bleu_3",
+    "Bleu_2",
+    "Bleu_1",
+    "METEOR",
+    "ROUGE_L",
+    "CIDEr",
+]  # , "SPICE"]
 
 
 def textcaps_doc_to_visual(doc):
@@ -31,13 +40,27 @@ def textcaps_process_result(doc, result):
     """
     pred = result[0] if len(result) > 0 else ""
 
-    data_dict = {"answer": doc["caption_str"], "pred": pred, "image_id": doc["image_id"]}
+    data_dict = {
+        "answer": doc["caption_str"],
+        "pred": pred,
+        "image_id": doc["image_id"],
+    }
 
-    return {f"textcaps_{metric}": data_dict for metric in TEXTCAPS_METRICS}
+    result_dict = {f"textcaps_{metric}": data_dict for metric in TEXTCAPS_METRICS}
+    result_dict["textcaps_POLOS"] = {**data_dict, "image": doc.get("image")}
+    return result_dict
 
 
 def textcaps_aggregation_result(results, metric, args=None):
-    scorers = [(Bleu(4), "Bleu_1"), (Bleu(4), "Bleu_2"), (Bleu(4), "Bleu_3"), (Bleu(4), "Bleu_4"), (Meteor(), "METEOR"), (Rouge(), "ROUGE_L"), (Cider(), "CIDEr")]  # , (Spice(), "SPICE")]
+    scorers = [
+        (Bleu(4), "Bleu_1"),
+        (Bleu(4), "Bleu_2"),
+        (Bleu(4), "Bleu_3"),
+        (Bleu(4), "Bleu_4"),
+        (Meteor(), "METEOR"),
+        (Rouge(), "ROUGE_L"),
+        (Cider(), "CIDEr"),
+    ]  # , (Spice(), "SPICE")]
     scorers_dict = {s[1]: s for s in scorers}
 
     stored_results = []
@@ -123,6 +146,10 @@ def textcaps_cider(results, args=None):
 
 def textcaps_spice(results, args=None):
     return textcaps_aggregation_result(results, "SPICE", args)
+
+
+def textcaps_polos(results, args=None):
+    return polos_aggregation(results, args)
 
 
 def textcaps_test_process_result(doc, result):

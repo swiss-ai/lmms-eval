@@ -10,10 +10,19 @@ from pycocoevalcap.tokenizer.ptbtokenizer import PTBTokenizer
 from pycocotools.coco import COCO
 
 from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
+from lmms_eval.tasks._task_utils.polos_utils import polos_aggregation
 
 dir_name = os.path.dirname(os.path.abspath(__file__))
 
-COCO_METRICS = ["Bleu_4", "Bleu_3", "Bleu_2", "Bleu_1", "METEOR", "ROUGE_L", "CIDEr"]  # , "SPICE"]
+COCO_METRICS = [
+    "Bleu_4",
+    "Bleu_3",
+    "Bleu_2",
+    "Bleu_1",
+    "METEOR",
+    "ROUGE_L",
+    "CIDEr",
+]  # , "SPICE"]
 
 
 def coco_doc_to_visual(doc):
@@ -45,9 +54,20 @@ def coco_process_result_karpathy(doc, result):
     image_id = int(question_id.split("_")[-1].split(".")[0])
     id = doc["imgid"]
 
-    data_dict = {"answer": doc["sentences"], "pred": pred, "image_id": image_id, "id": id}
+    data_dict = {
+        "answer": doc["sentences"],
+        "pred": pred,
+        "image_id": image_id,
+        "id": id,
+    }
 
-    return {f"coco_{metric}": data_dict for metric in COCO_METRICS}
+    result_dict = {f"coco_{metric}": data_dict for metric in COCO_METRICS}
+    image = doc.get("image")
+    if image is None and "url" in doc:
+        response = requests.get(doc["url"])
+        image = Image.open(BytesIO(response.content)).convert("RGB")
+    result_dict["coco_POLOS"] = {**data_dict, "image": image}
+    return result_dict
 
 
 def coco_process_result(doc, result):
@@ -66,11 +86,21 @@ def coco_process_result(doc, result):
 
     data_dict = {"answer": doc["answer"], "pred": pred, "image_id": image_id, "id": id}
 
-    return {f"coco_{metric}": data_dict for metric in COCO_METRICS}
+    result_dict = {f"coco_{metric}": data_dict for metric in COCO_METRICS}
+    result_dict["coco_POLOS"] = {**data_dict, "image": doc.get("image")}
+    return result_dict
 
 
 def coco_aggregation_result(results, metric, args):
-    scorers = [(Bleu(4), "Bleu_1"), (Bleu(4), "Bleu_2"), (Bleu(4), "Bleu_3"), (Bleu(4), "Bleu_4"), (Meteor(), "METEOR"), (Rouge(), "ROUGE_L"), (Cider(), "CIDEr")]  # , (Spice(), "SPICE")]
+    scorers = [
+        (Bleu(4), "Bleu_1"),
+        (Bleu(4), "Bleu_2"),
+        (Bleu(4), "Bleu_3"),
+        (Bleu(4), "Bleu_4"),
+        (Meteor(), "METEOR"),
+        (Rouge(), "ROUGE_L"),
+        (Cider(), "CIDEr"),
+    ]  # , (Spice(), "SPICE")]
     scorers_dict = {s[1]: s for s in scorers}
 
     stored_results = []
@@ -155,6 +185,10 @@ def coco_cider(results, args):
 
 def coco_spice(results, args):
     return coco_aggregation_result(results, "SPICE", args)
+
+
+def coco_polos(results, args):
+    return polos_aggregation(results, args)
 
 
 def coco_test_process_result(doc, result):

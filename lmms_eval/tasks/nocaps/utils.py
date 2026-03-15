@@ -7,10 +7,19 @@ from pycocoevalcap.tokenizer.ptbtokenizer import PTBTokenizer
 from pycocotools.coco import COCO
 
 from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
+from lmms_eval.tasks._task_utils.polos_utils import polos_aggregation
 
 dir_name = os.path.dirname(os.path.abspath(__file__))
 
-NOCAPS_METRICS = ["Bleu_4", "Bleu_3", "Bleu_2", "Bleu_1", "METEOR", "ROUGE_L", "CIDEr"]  # , "SPICE"]
+NOCAPS_METRICS = [
+    "Bleu_4",
+    "Bleu_3",
+    "Bleu_2",
+    "Bleu_1",
+    "METEOR",
+    "ROUGE_L",
+    "CIDEr",
+]  # , "SPICE"]
 
 
 def nocaps_doc_to_visual(doc):
@@ -34,13 +43,27 @@ def nocaps_process_result(doc, result):
     # The question id in our dataset is the image file itself
     image_id = doc["image_id"]
 
-    data_dict = {"answer": doc["annotations_captions"], "pred": pred, "image_id": image_id}
+    data_dict = {
+        "answer": doc["annotations_captions"],
+        "pred": pred,
+        "image_id": image_id,
+    }
 
-    return {f"nocaps_{metric}": data_dict for metric in NOCAPS_METRICS}
+    result_dict = {f"nocaps_{metric}": data_dict for metric in NOCAPS_METRICS}
+    result_dict["nocaps_POLOS"] = {**data_dict, "image": doc.get("image")}
+    return result_dict
 
 
 def nocaps_aggregation_result(results, metric, args=None):
-    scorers = [(Bleu(4), "Bleu_1"), (Bleu(4), "Bleu_2"), (Bleu(4), "Bleu_3"), (Bleu(4), "Bleu_4"), (Meteor(), "METEOR"), (Rouge(), "ROUGE_L"), (Cider(), "CIDEr")]  # , (Spice(), "SPICE")]
+    scorers = [
+        (Bleu(4), "Bleu_1"),
+        (Bleu(4), "Bleu_2"),
+        (Bleu(4), "Bleu_3"),
+        (Bleu(4), "Bleu_4"),
+        (Meteor(), "METEOR"),
+        (Rouge(), "ROUGE_L"),
+        (Cider(), "CIDEr"),
+    ]  # , (Spice(), "SPICE")]
     scorers_dict = {s[1]: s for s in scorers}
 
     stored_results = []
@@ -125,6 +148,10 @@ def nocaps_cider(results, args=None):
 
 def nocaps_spice(results, args=None):
     return nocaps_aggregation_result(results, "SPICE", args)
+
+
+def nocaps_polos(results, args=None):
+    return polos_aggregation(results, args)
 
 
 def nocaps_test_process_result(doc, result):

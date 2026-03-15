@@ -1,0 +1,27 @@
+include: coco2017_cap_val.yaml
+task: "coco2017_cap_val_polos"
+metric_list:
+  - metric: coco_Bleu_4
+    aggregation : !function utils.coco_bleu4
+    higher_is_better : true
+  - metric: coco_Bleu_3
+    aggregation : !function utils.coco_bleu3
+    higher_is_better : true
+  - metric: coco_Bleu_2
+    aggregation : !function utils.coco_bleu2
+    higher_is_better : true
+  - metric: coco_Bleu_1
+    aggregation : !function utils.coco_bleu1
+    higher_is_better : true
+  - metric: coco_METEOR
+    aggregation : !function utils.coco_meteor
+    higher_is_better : true
+  - metric: coco_ROUGE_L
+    aggregation : !function utils.coco_rougel
+    higher_is_better : true
+  - metric: coco_CIDEr
+    aggregation : !function utils.coco_cider
+    higher_is_better : true
+  - metric: coco_POLOS
+    aggregation : !function utils.coco_polos
+    higher_is_better : true

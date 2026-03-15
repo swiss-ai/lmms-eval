@@ -1,0 +1,27 @@
+include: nocaps_val.yaml
+task: "nocaps_val_polos"
+metric_list:
+  - metric: nocaps_Bleu_4
+    aggregation : !function utils.nocaps_bleu4
+    higher_is_better : true
+  - metric: nocaps_Bleu_3
+    aggregation : !function utils.nocaps_bleu3
+    higher_is_better : true
+  - metric: nocaps_Bleu_2
+    aggregation : !function utils.nocaps_bleu2
+    higher_is_better : true
+  - metric: nocaps_Bleu_1
+    aggregation : !function utils.nocaps_bleu1
+    higher_is_better : true
+  - metric: nocaps_METEOR
+    aggregation : !function utils.nocaps_meteor
+    higher_is_better : true
+  - metric: nocaps_ROUGE_L
+    aggregation : !function utils.nocaps_rougel
+    higher_is_better : true
+  - metric: nocaps_CIDEr
+    aggregation : !function utils.nocaps_cider
+    higher_is_better : true
+  - metric: nocaps_POLOS
+    aggregation : !function utils.nocaps_polos
+    higher_is_better : true

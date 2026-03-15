@@ -1,0 +1,27 @@
+include: flickr30k_test.yaml
+task: "flickr30k_test_polos"
+metric_list:
+  - metric: flickr_Bleu_4
+    aggregation : !function utils.flickr_bleu4
+    higher_is_better : true
+  - metric: flickr_Bleu_3
+    aggregation : !function utils.flickr_bleu3
+    higher_is_better : true
+  - metric: flickr_Bleu_2
+    aggregation : !function utils.flickr_bleu2
+    higher_is_better : true
+  - metric: flickr_Bleu_1
+    aggregation : !function utils.flickr_bleu1
+    higher_is_better : true
+  - metric: flickr_METEOR
+    aggregation : !function utils.flickr_meteor
+    higher_is_better : true
+  - metric: flickr_ROUGE_L
+    aggregation : !function utils.flickr_rougel
+    higher_is_better : true
+  - metric: flickr_CIDEr
+    aggregation : !function utils.flickr_cider
+    higher_is_better : true
+  - metric: flickr_POLOS
+    aggregation : !function utils.flickr_polos
+    higher_is_better : true
