@@ -5,11 +5,11 @@ from loguru import logger as eval_logger
 from transformers import AutoTokenizer, LlamaForCausalLM
 
 from lmms_eval.api.registry import register_model
-from lmms_eval.models.chat.emu_encoder_model import EMU3EncoderModel
+from lmms_eval.models.chat.emu_chat_model import EMU3ChatModel
 
 
 @register_model("llama_emu3")
-class LlamaEmu3Chat(EMU3EncoderModel):
+class LlamaEmu3Chat(EMU3ChatModel):
     """
     Llama3.2-3B with EMU3 vision encoder integration.
     Uses early fusion with discrete vision tokens from EMU3.

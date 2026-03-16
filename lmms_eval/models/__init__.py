@@ -16,6 +16,7 @@ AVAILABLE_SIMPLE_MODELS = {
     "aero": "Aero",
     "apertus_emu3_simple": "ApertusEmu3Simple",
     "apertus_emu3p5_simple": "ApertusEmu3p5Simple",
+    "llama_emu3p5_simple": "LlamaEmu3p5Simple",
     "aria": "Aria",
     "auroracap": "AuroraCap",
     "bagel": "Bagel",

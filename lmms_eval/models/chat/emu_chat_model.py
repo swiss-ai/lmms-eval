@@ -1,7 +1,7 @@
 """
 Unified chat model mixin for EMU encoder models with chat template support.
 
-EMUEncoderModelMixin provides the shared generate_until() logic.
+EMUChatModelMixin provides the shared generate_until() logic.
 Concrete classes combine it with the appropriate base model.
 
 Inheriting models overwrite:
@@ -28,7 +28,7 @@ from lmms_eval.models.model_utils.gen_metrics import log_metrics
 from lmms_eval.protocol import ChatMessages
 
 
-class EMUEncoderModelMixin:
+class EMUChatModelMixin:
     """
     Mixin providing chat-mode generate_until() for EMU encoder models.
 
@@ -302,13 +302,13 @@ class EMUEncoderModelMixin:
         raise NotImplementedError(f"Multi-round generation not implemented for {self._model_label}")
 
 
-class EMU3EncoderModel(EMUEncoderModelMixin, EMU3EncoderBaseModel):
+class EMU3ChatModel(EMUChatModelMixin, EMU3EncoderBaseModel):
     """Chat-specific EMU3 encoder model."""
 
     _model_label = "EMU3"
 
 
-class EMU3p5EncoderModel(EMUEncoderModelMixin, EMU3p5EncoderBaseModel):
+class EMU3p5ChatModel(EMUChatModelMixin, EMU3p5EncoderBaseModel):
     """Chat-specific EMU3.5 encoder model."""
 
     _model_label = "EMU3.5"
