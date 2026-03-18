@@ -7,7 +7,11 @@ import torch
 from accelerate import Accelerator, DistributedType
 from accelerate.state import AcceleratorState
 
-from decord import VideoReader, cpu
+try:
+    from decord import VideoReader, cpu
+except ImportError:
+    VideoReader = None
+    cpu = None
 from torchvision.transforms.functional import to_pil_image
 from tqdm import tqdm
 from transformers import AutoConfig, AutoProcessor, MllamaForConditionalGeneration
@@ -154,6 +158,8 @@ class LlamaVision(lmms):
         return new_list
 
     def load_video(self, video_path, max_frames_num):
+        if VideoReader is None:
+            raise ImportError("Video tasks require the 'decord' package: pip install decord")
         if type(video_path) == str:
             vr = VideoReader(video_path, ctx=cpu(0))
         else:
