@@ -8,13 +8,13 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
 #SBATCH --time=12:00:00
-#SBATCH --output=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3p5_simple_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3p5_simple_%j.err
+#SBATCH --output=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3p5_%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3p5_%j.err
 
 # set -euo pipefail
 
 # Log base path
-LOG_BASE=/iopsstor/scratch/cscs/$USER/lmms-eval/logs/eval_apertus_emu3p5_simple_$SLURM_JOB_ID
+LOG_BASE=/iopsstor/scratch/cscs/$USER/lmms-eval/logs/eval_apertus_emu3p5_$SLURM_JOB_ID
 
 # Create a combined log capturing stdout and stderr
 exec > >(tee -a ${LOG_BASE}.log)
@@ -24,7 +24,7 @@ exec 2> >(tee -a ${LOG_BASE}.log >&2)
 # (host path /etc/ssl/ca-bundle.pem doesn't exist in container)
 unset SSL_CERT_FILE
 
-TASKS="vqa_rad,path_vqa" #mmmu_val_group_img,vqav2_val" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa
+TASKS="medqa,medmcqa,pubmedqa,mmlu_medical" # "vqa_rad,path_vqa" #mmmu_val_group_img,vqav2_val" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa
 BATCH_SIZE=16
 MODEL="apertus_emu3p5"
 MODEL_PATH="/capstor/store/cscs/swissai/infra01/MLLM/ablations/apertus-8b-img-SFT-32nodes-gbs512-mbs1-steps8030-img-text-seqlen8192-s2onlytxtloss/HF"        # Required: path to HF model or HF hub identifier (e.g. "org/model-name")
