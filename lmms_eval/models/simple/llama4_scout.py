@@ -1,3 +1,5 @@
+import base64
+from io import BytesIO
 from typing import List, Optional, Tuple, Union
 
 import PIL
@@ -12,7 +14,6 @@ from lmms_eval import utils
 from lmms_eval.api.instance import Instance
 from lmms_eval.api.model import lmms
 from lmms_eval.api.registry import register_model
-from lmms_eval.models.model_utils.media_encoder import encode_image_to_data_url
 
 try:
     import numpy as np
@@ -200,7 +201,10 @@ class Llama4Scout(lmms):
         raise NotImplementedError("Loglikelihood is not implemented for Llama4Scout")
 
     def _image_to_data_url(self, image: Image.Image) -> str:
-        return encode_image_to_data_url(image, image_format="JPEG", mime_type="image/jpeg", convert_rgb=True, quality=85)
+        buf = BytesIO()
+        image.convert("RGB").save(buf, format="JPEG", quality=85)
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        return f"data:image/jpeg;base64,{b64}"
 
     def _load_video(self, video_path: str) -> List[Image.Image]:
         if not _VIDEO_SUPPORT:
