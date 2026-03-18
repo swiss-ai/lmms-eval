@@ -8,13 +8,13 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
 #SBATCH --time=12:00:00
-#SBATCH --output=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3p5_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3p5_%j.err
+#SBATCH --output=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3p5_simple_%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3p5_simple_%j.err
 
 # set -euo pipefail
 
 # Log base path
-LOG_BASE=/iopsstor/scratch/cscs/$USER/lmms-eval/logs/eval_apertus_emu3p5_$SLURM_JOB_ID
+LOG_BASE=/iopsstor/scratch/cscs/$USER/lmms-eval/logs/eval_apertus_emu3p5_simple_$SLURM_JOB_ID
 
 # Create a combined log capturing stdout and stderr
 exec > >(tee -a ${LOG_BASE}.log)
@@ -28,6 +28,7 @@ TASKS="vqa_rad,path_vqa" #mmmu_val_group_img,vqav2_val" #,pope,gqa,vqav2_val,mmm
 BATCH_SIZE=16
 MODEL="apertus_emu3p5"
 MODEL_PATH="/capstor/store/cscs/swissai/infra01/MLLM/ablations/apertus-8b-img-SFT-32nodes-gbs512-mbs1-steps8030-img-text-seqlen8192-s2onlytxtloss/HF"        # Required: path to HF model or HF hub identifier (e.g. "org/model-name")
+# MODEL="apertus_emu3p5_simple"
 # MODEL_PATH="/capstor/store/cscs/swissai/infra01/MLLM/ablations/apertus-8b-img-pretrain-PAIRED-128nodes-gbs1024-mbs1-steps11081-img0.818-text0.1-seqlen8192-selectiveGoldfish-OCR-onlytxt/HF"
 TOKENIZER_PATH="/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_instruct"    # Required: path to tokenizer or HF hub identifier (defaults to MODEL_PATH)
 RES_PATH="/iopsstor/scratch/cscs/$USER/PDM/results/lmms_eval/${MODEL}_results"

@@ -109,6 +109,7 @@ class Huggingface(lmms):
             model_cls = AutoModel
 
         self._model = model_cls.from_pretrained(pretrained, **model_kwargs).eval()
+        self._fix_meta_buffers()
         self.max_num_frames = max_num_frames
 
         if reasoning_prompt:
@@ -142,6 +143,40 @@ class Huggingface(lmms):
         else:
             self._rank = 0
             self._world_size = 1
+
+    def _fix_meta_buffers(self) -> None:
+        """Re-materialize buffers left on meta device by device_map loading.
+
+        When a model is loaded with device_map="auto", accelerate initialises
+        the model on meta device and then streams weights onto GPUs.  Buffers
+        that are computed in __init__ (e.g. Llama4's vision rotary-embedding
+        freqs_ci) are never re-created, causing "Cannot copy out of meta
+        tensor" at the first forward pass.  We detect such modules by name and
+        recompute their buffers on the correct device.
+        """
+        import types
+
+        for module in self._model.modules():
+            if type(module).__name__ != "Llama4VisionRotaryEmbedding":
+                continue
+            if not (hasattr(module, "freqs_ci") and module.freqs_ci.is_meta):
+                continue
+
+            def _patched_forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+                if self.freqs_ci.is_meta:
+                    device = hidden_states.device
+                    # Infer params from meta buffer shape: freqs_ci is complex [seq, dim//2]
+                    theta = getattr(self, "theta", None) or getattr(self, "base", None) or getattr(self, "rope_theta", 10000.0)
+                    dim = (getattr(self, "dim", None) or getattr(self, "head_dim", None)) or self.freqs_ci.shape[-1] * 2
+                    max_num_tiles = getattr(self, "max_num_tiles", 1)
+                    max_num_positions = (getattr(self, "max_num_positions", None) or getattr(self, "max_position_embeddings", None)) or (self.freqs_ci.shape[0] // max_num_tiles)
+                    freqs = 1.0 / (theta ** (torch.arange(0, dim, 2, dtype=torch.float32, device=device) / dim))
+                    t = torch.arange(max_num_tiles * max_num_positions, dtype=torch.float32, device=device)
+                    freqs = torch.outer(t, freqs)
+                    self.freqs_ci = torch.polar(torch.ones_like(freqs), freqs)
+                return self.freqs_ci.to(hidden_states.device)
+
+            module.forward = types.MethodType(_patched_forward, module)
 
     @property
     def config(self):

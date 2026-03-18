@@ -19,8 +19,8 @@ exec > >(tee -a ${LOG_BASE}.log)
 exec 2> >(tee -a ${LOG_BASE}.log >&2)
 
 TASKS="vqa_rad,path_vqa" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
-BATCH_SIZE=1
-MODEL="huggingface"
+BATCH_SIZE=8
+MODEL="llama4_scout"
 MODEL_ARGS="pretrained=meta-llama/Llama-4-Scout-17B-16E-Instruct,device_map=auto"
 RES_PATH="/iopsstor/scratch/cscs/$USER/PDM/results/lmms_eval/${MODEL}_results"
 EVAL_DIR=/iopsstor/scratch/cscs/$USER/lmms-eval
@@ -61,7 +61,7 @@ pip install -e .
 
 echo "📦 Installing task-specific dependencies..."
 source "${EVAL_DIR}/examples/install_task_deps.sh" "${TASKS}" "${EVAL_DIR}"
-pip install git+https://github.com/huggingface/transformers.git
+pip install "transformers>=4.51.0"
 
 echo "<<New Packages>>"
 pip list
