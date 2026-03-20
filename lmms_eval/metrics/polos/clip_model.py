@@ -50,6 +50,18 @@ _BPE_PATH = os.path.join(
     "bpe_simple_vocab_16e6.txt.gz",
 )
 
+_BPE_URL = "https://openaipublic.azureedge.net/clip/" "bpe_simple_vocab_16e6.txt.gz"
+
+
+def _ensure_bpe(path: str = _BPE_PATH) -> str:
+    """Download the BPE vocab file if it doesn't exist."""
+    if os.path.isfile(path):
+        return path
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with urllib.request.urlopen(_BPE_URL) as src, open(path, "wb") as dst:
+        dst.write(src.read())
+    return path
+
 
 @lru_cache()
 def bytes_to_unicode() -> dict[int, str]:
@@ -88,6 +100,7 @@ class SimpleTokenizer:
     """BPE tokenizer for CLIP text encoding."""
 
     def __init__(self, bpe_path: str = _BPE_PATH) -> None:
+        _ensure_bpe(bpe_path)
         self.byte_encoder = bytes_to_unicode()
         self.byte_decoder = {v: k for k, v in self.byte_encoder.items()}
         with gzip.open(bpe_path) as f:
