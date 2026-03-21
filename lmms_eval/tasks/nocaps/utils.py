@@ -7,7 +7,6 @@ from pycocoevalcap.tokenizer.ptbtokenizer import PTBTokenizer
 from pycocotools.coco import COCO
 
 from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
-from lmms_eval.tasks._task_utils.polos_utils import polos_aggregation
 
 dir_name = os.path.dirname(os.path.abspath(__file__))
 
@@ -151,6 +150,8 @@ def nocaps_spice(results, args=None):
 
 
 def nocaps_polos(results, args=None):
+    from lmms_eval.tasks._task_utils.polos_utils import polos_aggregation
+
     return polos_aggregation(results, args)
 
 

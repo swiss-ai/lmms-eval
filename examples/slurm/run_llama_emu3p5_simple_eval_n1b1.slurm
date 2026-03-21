@@ -1,43 +1,55 @@
 #!/bin/bash
 #SBATCH --account=a-infra01
-#SBATCH --job-name=eval-chameleon
-#SBATCH --environment=/users/rkreft/.edf/new_ngc.toml
+#SBATCH --job-name=eval-llama-emu3_5-simple
+#SBATCH --environment=emu3
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
-#SBATCH --time=01:00:00
-#SBATCH --output=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_chameleon_%j.out
-#SBATCH --error=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_chameleon_%j.err
+#SBATCH --time=06:00:00
+#SBATCH --output=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_llama_emu3p5_simple_%j.out
+#SBATCH --error=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_llama_emu3p5_simple_%j.err
 
 # Unset SSL_CERT_FILE to avoid FileNotFoundError inside NGC container
 # (host path /etc/ssl/ca-bundle.pem doesn't exist in container)
 unset SSL_CERT_FILE
 
-TASKS="ai2d"
+cd /users/rkreft/scratch_capstor/lmms-eval
+
+TASKS="coco2017_cap_val,coco_karpathy_test,flickr30k_test,nocaps_val,textcaps_val,detailcaps,coco_cap_chair"
 BATCH_SIZE=1
-MODEL="chameleon"
-MODEL_PATH="facebook/chameleon-7b"        # Required: path to HF model or HF hub identifier (e.g. "facebook/chameleon-7b")
-ATTN_IMPLEMENTATION="sdpa"
-RES_PATH="/capstor/scratch/cscs/$USER/PDM/results/lmms_eval/chameleon_results"
+MODEL="llama_emu3p5_simple"
+MODEL_PATH=""        # Required: path to HF model or HF hub identifier (e.g. "org/model-name")
+TOKENIZER_PATH=""    # Required: path to tokenizer or HF hub identifier (defaults to MODEL_PATH)
+RES_PATH="/capstor/scratch/cscs/$USER/PDM/results/lmms_eval/llama_emu3p5_simple_results"
 EVAL_DIR=/capstor/scratch/cscs/$USER/lmms-eval
-OFFLINE_DATASETS="true"
+OFFLINE_DATASETS="false"
 
-# Wandb logging (disabled by default, use --wandb to enable)
-WANDB_ENABLED="false"
-WANDB_PROJECT="lmms-eval"
-WANDB_LOG_SAMPLES="false"
+# Emu3.5 default pixel ranges (use arithmetic expressions like 1400*1400)
+EMU_MIN_PIXELS=$((256*256))
+EMU_MAX_PIXELS=$((1400*1400))
 
-# Debug mode (disabled by default, use --debug [N] to enable)
+# Limit number of samples per task (disabled by default)
+LIMIT=""
+
+# Debug mode (disabled by default)
 DEBUG_SAMPLES="false"
 NUM_DEBUG_SAMPLES=5
+
+# Prompt override for base models (unset = use task prompt, "" = pure continuation)
+PROMPT_OVERRIDE_SET="false"
+PROMPT_OVERRIDE=""
 
 # Parse optional arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --model-path)
             MODEL_PATH="$2"
+            shift 2
+            ;;
+        --tokenizer-path)
+            TOKENIZER_PATH="$2"
             shift 2
             ;;
         --tasks)
@@ -52,21 +64,17 @@ while [[ $# -gt 0 ]]; do
             MAX_LENGTH="$2"
             shift 2
             ;;
-        --attn-implementation)
-            ATTN_IMPLEMENTATION="$2"
+        --emu-min-pixels)
+            EMU_MIN_PIXELS=$(($2))
             shift 2
             ;;
-        --wandb)
-            WANDB_ENABLED="true"
-            shift
-            ;;
-        --wandb-project)
-            WANDB_PROJECT="$2"
+        --emu-max-pixels)
+            EMU_MAX_PIXELS=$(($2))
             shift 2
             ;;
-        --wandb-log-samples)
-            WANDB_LOG_SAMPLES="true"
-            shift
+        --limit)
+            LIMIT="$2"
+            shift 2
             ;;
         --debug)
             DEBUG_SAMPLES="true"
@@ -79,6 +87,11 @@ while [[ $# -gt 0 ]]; do
         --no-offline-datasets)
             OFFLINE_DATASETS="false"
             shift
+            ;;
+        --prompt-override)
+            PROMPT_OVERRIDE_SET="true"
+            PROMPT_OVERRIDE="$2"
+            shift 2
             ;;
         *)
             echo "Unknown option: $1"
@@ -94,6 +107,11 @@ if [ -z "$MODEL_PATH" ]; then
     exit 1
 fi
 
+# Default tokenizer to model path if not set
+if [ -z "$TOKENIZER_PATH" ]; then
+    TOKENIZER_PATH="$MODEL_PATH"
+fi
+
 # Automatically get number of available GPUS to configure accelerate properly
 NUM_GPUS=$(echo "$CUDA_VISIBLE_DEVICES" | awk -F',' '{print NF}')
 echo "Number of GPUs available: $NUM_GPUS"
@@ -105,14 +123,19 @@ echo "MLLM Evaluation Configuration"
 echo "========================================"
 echo "Model:                ${MODEL}"
 echo "Model path:           ${MODEL_PATH}"
+echo "Tokenizer path:       ${TOKENIZER_PATH}"
 echo "Tasks:                ${TASKS}"
 echo "Batch size(per GPU):  ${BATCH_SIZE}"
-echo "Attn implementation:  ${ATTN_IMPLEMENTATION}"
+echo "Emu min pixels:       ${EMU_MIN_PIXELS}"
+echo "Emu max pixels:       ${EMU_MAX_PIXELS}"
 echo "Offline datasets:     ${OFFLINE_DATASETS}"
-echo "Wandb enabled:        ${WANDB_ENABLED}"
-echo "Wandb project:        ${WANDB_PROJECT}"
-echo "Wandb log samples:    ${WANDB_LOG_SAMPLES}"
+echo "Limit:                ${LIMIT:-none}"
 echo "Debug samples:        ${DEBUG_SAMPLES} (${NUM_DEBUG_SAMPLES})"
+if [ "$PROMPT_OVERRIDE_SET" = "true" ]; then
+    echo "Prompt override:      '${PROMPT_OVERRIDE}'"
+else
+    echo "Prompt override:      none (using task prompt)"
+fi
 echo "Num GPU:              ${NUM_GPUS}"
 echo "Output-Path:          ${RES_PATH}"
 echo "Eval-Repo-Location:   ${EVAL_DIR}"
@@ -134,59 +157,35 @@ python "${EVAL_DIR}/examples/install_deps.py" \
 echo ""
 
 # Build model_args with required parameters
-MODEL_ARGS="pretrained=${MODEL_PATH},attn_implementation=${ATTN_IMPLEMENTATION}"
+MODEL_ARGS="model_descriptor=${MODEL_PATH},tokenizer_path=${TOKENIZER_PATH}"
 if [ -n "$MAX_LENGTH" ]; then
     MODEL_ARGS="${MODEL_ARGS},max_length=${MAX_LENGTH}"
 fi
-
-LIMIT_ARG=""
+if [ -n "$EMU_MIN_PIXELS" ]; then
+    MODEL_ARGS="${MODEL_ARGS},emu_min_pixels=${EMU_MIN_PIXELS}"
+fi
+if [ -n "$EMU_MAX_PIXELS" ]; then
+    MODEL_ARGS="${MODEL_ARGS},emu_max_pixels=${EMU_MAX_PIXELS}"
+fi
 if [ "$DEBUG_SAMPLES" = "true" ]; then
-    # Ensure --limit is at least NUM_GPUS to avoid empty ranks in multi-GPU
-    DEBUG_LIMIT=$(( NUM_DEBUG_SAMPLES > NUM_GPUS ? NUM_DEBUG_SAMPLES : NUM_GPUS ))
-    LIMIT_ARG="--limit ${DEBUG_LIMIT}"
-    MODEL_ARGS="${MODEL_ARGS},debug_samples=True,num_debug_samples=${NUM_DEBUG_SAMPLES}"
+    MODEL_ARGS="${MODEL_ARGS},debug_samples=true,num_debug_samples=${NUM_DEBUG_SAMPLES}"
 fi
-
-WANDB_ARGS=""
-WANDB_SAMPLES_ARG=""
-if [ "$WANDB_ENABLED" = "true" ]; then
-    WANDB_ARGS="--wandb_args project=${WANDB_PROJECT},job_type=eval,name=${MODEL}-eval"
-    if [ "$WANDB_LOG_SAMPLES" = "true" ]; then
-        WANDB_SAMPLES_ARG="--wandb_log_samples"
-    fi
+if [ "$PROMPT_OVERRIDE_SET" = "true" ]; then
+    MODEL_ARGS="${MODEL_ARGS},prompt_override='${PROMPT_OVERRIDE}'"
 fi
-
-echo "Pre-downloading datasets to avoid multi-rank race conditions..."
-python -c "
-from datasets import load_dataset
-import os
-tasks = '${TASKS}'.split(',')
-task_to_dataset = {
-    'ai2d': ('lmms-lab/ai2d', None),
-    'mmstar': ('Lin-Chen/MMStar', None),
-    'mme': ('lmms-lab/MME', None),
-    'mmmu': ('lmms-lab/MMMU', None),
-}
-for task in tasks:
-    task = task.strip()
-    if task in task_to_dataset:
-        ds_path, ds_name = task_to_dataset[task]
-        print(f'Pre-downloading dataset: {ds_path}')
-        load_dataset(ds_path, ds_name, trust_remote_code=True)
-    else:
-        print(f'No pre-download mapping for task: {task}, relying on runtime download')
-print('Dataset pre-download complete.')
-"
 
 echo "Running LM evaluation..."
+LIMIT_FLAG=""
+if [ -n "$LIMIT" ]; then
+    LIMIT_FLAG="--limit ${LIMIT}"
+fi
+
 accelerate launch -m lmms_eval \
     --model "${MODEL}" \
     --model_args "${MODEL_ARGS}" \
     --tasks "${TASKS}" \
     --batch_size "${BATCH_SIZE}" \
     --output_path "${RES_PATH}" \
-    ${LIMIT_ARG} \
-    ${WANDB_ARGS} \
-    ${WANDB_SAMPLES_ARG}
+    ${LIMIT_FLAG}
 
 echo "End Reached"

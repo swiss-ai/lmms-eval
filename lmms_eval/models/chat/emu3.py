@@ -20,6 +20,7 @@ from lmms_eval import utils
 from lmms_eval.api.instance import Instance
 from lmms_eval.api.registry import register_model
 from lmms_eval.models.emu3_encoder_base_model import EMU3EncoderBaseModel
+from lmms_eval.models.model_utils.debug_utils import log_debug_sample
 from lmms_eval.protocol import ChatMessages
 
 
@@ -62,7 +63,9 @@ class EMU3(EMU3EncoderBaseModel):
         # Call parent constructor with mapped parameters
         super().__init__(
             model_descriptor=model_descriptor,
-            tokenizer_path=tokenizer_path if tokenizer_path is not None else model_descriptor,
+            tokenizer_path=tokenizer_path
+            if tokenizer_path is not None
+            else model_descriptor,
             vq_hub=vq_hub,
             device=device,
             device_map=device_map,
@@ -122,15 +125,24 @@ class EMU3(EMU3EncoderBaseModel):
             grouping=True,
         )
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
-        num_iters = len(requests) // self.batch_size if len(requests) % self.batch_size == 0 else len(requests) // self.batch_size + 1
+        num_iters = (
+            len(requests) // self.batch_size
+            if len(requests) % self.batch_size == 0
+            else len(requests) // self.batch_size + 1
+        )
         pbar = tqdm(total=num_iters, disable=(self.rank != 0), desc="Model Responding")
 
         # iterate through batches (1 chunk = 1 batch)
         for chunk in chunks:
             ctx, doc_to_messages, all_gen_kwargs, doc_id, task, split = zip(*chunk)
             # Get chat messages (read samples from dataset)
-            chat_messages = [doc_to_messages[idx](self.task_dict[task][split][ids]) for idx, (ids, task, split) in enumerate(zip(doc_id, task, split))]
-            chat_messages: List[ChatMessages] = [ChatMessages(**{"messages": message}) for message in chat_messages]
+            chat_messages = [
+                doc_to_messages[idx](self.task_dict[task][split][ids])
+                for idx, (ids, task, split) in enumerate(zip(doc_id, task, split))
+            ]
+            chat_messages: List[ChatMessages] = [
+                ChatMessages(**{"messages": message}) for message in chat_messages
+            ]
 
             # Extract media and text per message
             # EMU3 requires len(images) == len(texts) in understanding mode
@@ -155,13 +167,17 @@ class EMU3(EMU3EncoderBaseModel):
                         skipped_text_only += 1
                         # Add empty placeholder answer for this skipped sample
                         res.append("")
-                        self.cache_hook.add_partial("generate_until", (ctx[idx], all_gen_kwargs[idx]), "")
+                        self.cache_hook.add_partial(
+                            "generate_until", (ctx[idx], all_gen_kwargs[idx]), ""
+                        )
                         pbar.update(1)
                         continue
                     else:
                         # EMU3 requires images - add empty answer
                         res.append("")
-                        self.cache_hook.add_partial("generate_until", (ctx[idx], all_gen_kwargs[idx]), "")
+                        self.cache_hook.add_partial(
+                            "generate_until", (ctx[idx], all_gen_kwargs[idx]), ""
+                        )
                         pbar.update(1)
                         continue
 
@@ -172,7 +188,9 @@ class EMU3(EMU3EncoderBaseModel):
                         skipped_multi_image += 1
                         # Add empty placeholder answer for this skipped sample
                         res.append("")
-                        self.cache_hook.add_partial("generate_until", (ctx[idx], all_gen_kwargs[idx]), "")
+                        self.cache_hook.add_partial(
+                            "generate_until", (ctx[idx], all_gen_kwargs[idx]), ""
+                        )
                         pbar.update(1)
                         continue
                     else:
@@ -180,7 +198,9 @@ class EMU3(EMU3EncoderBaseModel):
                         img = visual[0]
                         if isinstance(img, str):
                             img = Image.open(img)
-                        batch_data.append({"text": text, "image": img, "context": ctx[idx]})
+                        batch_data.append(
+                            {"text": text, "image": img, "context": ctx[idx]}
+                        )
                 else:
                     # Exactly 1 image - process normally
                     img = visual[0]
@@ -234,33 +254,48 @@ class EMU3(EMU3EncoderBaseModel):
             }
 
             with torch.inference_mode():
-                outputs = self.model.generate(**model_inputs, generation_config=generation_config)
+                outputs = self.model.generate(
+                    **model_inputs, generation_config=generation_config
+                )
 
             # Trim input_ids from outputs
             outputs_trimmed = outputs[:, model_inputs["input_ids"].shape[-1] :]
-            answers = self.processor.batch_decode(outputs_trimmed, skip_special_tokens=True)
+            answers = self.processor.batch_decode(
+                outputs_trimmed, skip_special_tokens=True
+            )
 
             # Decode with special tokens for debugging
             if self.debug_samples:
-                prompts_with_tokens = self.processor.batch_decode(model_inputs["input_ids"], skip_special_tokens=False)
-                answers_with_tokens = self.processor.batch_decode(outputs_trimmed, skip_special_tokens=False)
+                prompts_with_tokens = self.processor.batch_decode(
+                    model_inputs["input_ids"], skip_special_tokens=False
+                )
+                answers_with_tokens = self.processor.batch_decode(
+                    outputs_trimmed, skip_special_tokens=False
+                )
 
             for i, (ans, item, text) in enumerate(zip(answers, batch_data, texts)):
                 res.append(ans)
-                self.cache_hook.add_partial("generate_until", (item["context"], gen_kwargs), ans)
+                self.cache_hook.add_partial(
+                    "generate_until", (item["context"], gen_kwargs), ans
+                )
                 pbar.update(1)
 
                 # Debug sample output (only on rank 0 to avoid duplicates)
-                if self.debug_samples and self._debug_samples_printed < self.num_debug_samples and self.rank == 0:
+                if (
+                    self.debug_samples
+                    and self._debug_samples_printed < self.num_debug_samples
+                    and self.rank == 0
+                ):
                     self._debug_samples_printed += 1
-                    eval_logger.info("=" * 80)
-                    eval_logger.info(f"DEBUG SAMPLE {self._debug_samples_printed}/" f"{self.num_debug_samples}")
-                    eval_logger.info("=" * 80)
-                    eval_logger.info(f"PROMPT (clean): {text}")
-                    eval_logger.info(f"PROMPT (with tokens): {prompts_with_tokens[i]}")
-                    eval_logger.info(f"ANSWER (clean): {ans}")
-                    eval_logger.info(f"ANSWER (with tokens): {answers_with_tokens[i]}")
-                    eval_logger.info("=" * 80)
+                    log_debug_sample(
+                        sample_num=self._debug_samples_printed,
+                        total_samples=self.num_debug_samples,
+                        prompt_clean=text,
+                        prompt_with_tokens=prompts_with_tokens[i],
+                        answer_clean=ans,
+                        answer_with_tokens=answers_with_tokens[i],
+                        attention_mask=model_inputs["attention_mask"][i],
+                    )
 
                 eval_logger.debug(f"Question: {text}")
                 eval_logger.debug(f"Model Response: {ans}")
@@ -271,10 +306,23 @@ class EMU3(EMU3EncoderBaseModel):
 
         # Print statistics at the end (warning mode)
         if self.rank == 0:  # Only print from main process
-            eval_logger.warning(f"EMU3 Statistics: Found {text_only_count}/{total_samples} " f"text-only samples (no images). " f"Skipped: {skipped_text_only} " f"(skip_text_only={self.skip_text_only})")
-            eval_logger.warning(f"EMU3 Statistics: Found {multi_image_count}/{total_samples} " f"multi-image samples (>1 image). " f"Skipped: {skipped_multi_image} " f"(skip_multi_image={self.skip_multi_image})")
+            eval_logger.warning(
+                f"EMU3 Statistics: Found {text_only_count}/{total_samples} "
+                f"text-only samples (no images). "
+                f"Skipped: {skipped_text_only} "
+                f"(skip_text_only={self.skip_text_only})"
+            )
+            eval_logger.warning(
+                f"EMU3 Statistics: Found {multi_image_count}/{total_samples} "
+                f"multi-image samples (>1 image). "
+                f"Skipped: {skipped_multi_image} "
+                f"(skip_multi_image={self.skip_multi_image})"
+            )
             if text_only_count == 0 and multi_image_count == 0:
-                eval_logger.info(f"EMU3 Statistics: All {total_samples} samples had exactly 1 " "image. No text-only or multi-image samples encountered.")
+                eval_logger.info(
+                    f"EMU3 Statistics: All {total_samples} samples had exactly 1 "
+                    "image. No text-only or multi-image samples encountered."
+                )
 
         return res
 

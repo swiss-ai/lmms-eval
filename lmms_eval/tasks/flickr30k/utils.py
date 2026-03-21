@@ -8,7 +8,6 @@ from pycocoevalcap.tokenizer.ptbtokenizer import PTBTokenizer
 from pycocotools.coco import COCO
 
 from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
-from lmms_eval.tasks._task_utils.polos_utils import polos_aggregation
 
 dir_name = os.path.dirname(os.path.abspath(__file__))
 
@@ -147,6 +146,8 @@ def flickr_spice(results, args):
 
 
 def flickr_polos(results, args):
+    from lmms_eval.tasks._task_utils.polos_utils import polos_aggregation
+
     return polos_aggregation(results, args)
 
 

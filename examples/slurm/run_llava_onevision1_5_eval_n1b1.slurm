@@ -1,27 +1,27 @@
 #!/bin/bash
 #SBATCH --account=a-infra01
 #SBATCH --job-name=eval-llava-ov1_5
-#SBATCH --environment=emu3
+#SBATCH --environment=/users/rkreft/.edf/new_ngc.toml
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
 #SBATCH --time=12:00:00
-#SBATCH --output=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_llava_onevision1_5_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_llava_onevision1_5_%j.err
+#SBATCH --output=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_llava_onevision1_5_%j.out
+#SBATCH --error=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_llava_onevision1_5_%j.err
 
 # Unset SSL_CERT_FILE to avoid FileNotFoundError inside NGC container
 # (host path /etc/ssl/ca-bundle.pem doesn't exist in container)
 unset SSL_CERT_FILE
 
-TASKS="mmmu_val_group_img,vqav2_val"
-BATCH_SIZE=1
-MODEL="llava_onevision1_5"
-MODEL_PATH=""        # Required: path to HF model or HF hub identifier (e.g. "lmms-lab/LLaVA-OneVision-1.5-8B-Instruct")
+TASKS="ai2d"
+BATCH_SIZE=3
+MODEL="llava_onevision1_5_chat"
+MODEL_PATH="lmms-lab/LLaVA-OneVision-1.5-8B-Instruct"        # Required: path to HF model or HF hub identifier (e.g. "lmms-lab/LLaVA-OneVision-1.5-8B-Instruct")
 ATTN_IMPLEMENTATION="sdpa"
-RES_PATH="/iopsstor/scratch/cscs/$USER/PDM/results/lmms_eval/llava_onevision1_5_results"
-EVAL_DIR=/iopsstor/scratch/cscs/$USER/lmms-eval
+RES_PATH="/capstor/scratch/cscs/$USER/PDM/results/lmms_eval/llava_onevision1_5_results"
+EVAL_DIR=/capstor/scratch/cscs/$USER/lmms-eval
 OFFLINE_DATASETS="true"
 
 # Wandb logging (disabled by default, use --wandb to enable)
@@ -126,23 +126,11 @@ else
     unset HF_DATASETS_OFFLINE
 fi
 
-echo "###Setup Packages & environment#####"
-echo ""
-echo "<<Current Packages>>"
-pip list
-echo ""
-
-echo "Setting up lmms-eval package..."
-cd "$EVAL_DIR" || exit
-pip uninstall jupyterlab -y  # Uninstall conflicting package
-pip install -e .
-pip install -e ".[metrics]"
-
-echo "Installing task-specific dependencies..."
-source "${EVAL_DIR}/examples/install_task_deps.sh" "${TASKS}" "${EVAL_DIR}"
-
-echo "<<New Packages>>"
-pip list
+echo "Setting up dependencies..."
+python "${EVAL_DIR}/examples/install_deps.py" \
+    --model "${MODEL}" \
+    --tasks "${TASKS}" \
+    --eval-dir "${EVAL_DIR}"
 echo ""
 
 # Build model_args with required parameters
@@ -153,7 +141,10 @@ fi
 
 LIMIT_ARG=""
 if [ "$DEBUG_SAMPLES" = "true" ]; then
-    LIMIT_ARG="--limit ${NUM_DEBUG_SAMPLES}"
+    # Ensure --limit is at least NUM_GPUS to avoid empty ranks in multi-GPU
+    DEBUG_LIMIT=$(( NUM_DEBUG_SAMPLES > NUM_GPUS ? NUM_DEBUG_SAMPLES : NUM_GPUS ))
+    LIMIT_ARG="--limit ${DEBUG_LIMIT}"
+    MODEL_ARGS="${MODEL_ARGS},debug_samples=True,num_debug_samples=${NUM_DEBUG_SAMPLES}"
 fi
 
 WANDB_ARGS=""
@@ -164,6 +155,66 @@ if [ "$WANDB_ENABLED" = "true" ]; then
         WANDB_SAMPLES_ARG="--wandb_log_samples"
     fi
 fi
+
+echo "Pre-downloading model code and datasets..."
+python -c "
+from datasets import load_dataset
+import os, glob, shutil
+
+# Pre-download model code by attempting to load the model (will fail but caches code)
+print('Pre-downloading model code for: ${MODEL_PATH}')
+try:
+    from transformers import AutoModelForCausalLM
+    AutoModelForCausalLM.from_pretrained(
+        '${MODEL_PATH}', device_map='cpu', trust_remote_code=True
+    )
+except Exception as e:
+    print(f'Model pre-download triggered (expected error): {type(e).__name__}')
+
+# Fix flash_attn import in cached model code.
+# The model HF code imports flash_attn_varlen_func from transformers, but
+# that symbol does not exist in transformers >= 4.48. Import from flash_attn
+# directly instead.
+cache_dir = os.path.expanduser('~/.cache/huggingface/modules/transformers_modules')
+patched = False
+for f in glob.glob(os.path.join(cache_dir, '**', 'modeling_llavaonevision1_5.py'), recursive=True):
+    with open(f, 'r') as fp:
+        content = fp.read()
+    old = 'from transformers.modeling_flash_attention_utils import _flash_attention_forward, flash_attn_varlen_func'
+    if old in content:
+        new = ('from transformers.modeling_flash_attention_utils import _flash_attention_forward\n'
+               '    from flash_attn import flash_attn_varlen_func')
+        content = content.replace(old, new)
+        with open(f, 'w') as fp:
+            fp.write(content)
+        pycache = os.path.join(os.path.dirname(f), '__pycache__')
+        if os.path.exists(pycache):
+            shutil.rmtree(pycache)
+        print(f'Patched flash_attn import in {f}')
+        patched = True
+    else:
+        print(f'No patch needed for {f}')
+if not patched:
+    print('WARNING: No modeling file found to patch!')
+
+# Pre-download datasets to avoid multi-rank race conditions
+tasks = '${TASKS}'.split(',')
+task_to_dataset = {
+    'ai2d': ('lmms-lab/ai2d', None),
+    'mmstar': ('Lin-Chen/MMStar', None),
+    'mme': ('lmms-lab/MME', None),
+    'mmmu': ('lmms-lab/MMMU', None),
+}
+for task in tasks:
+    task = task.strip()
+    if task in task_to_dataset:
+        ds_path, ds_name = task_to_dataset[task]
+        print(f'Pre-downloading dataset: {ds_path}')
+        load_dataset(ds_path, ds_name, trust_remote_code=True)
+    else:
+        print(f'No pre-download mapping for task: {task}, relying on runtime download')
+print('Pre-download complete.')
+"
 
 echo "Running LM evaluation..."
 accelerate launch -m lmms_eval \

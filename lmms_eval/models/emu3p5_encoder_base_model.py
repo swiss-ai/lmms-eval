@@ -81,9 +81,13 @@ class EMU3p5EncoderBaseModel(lmms):
         debug_samples: bool = False,
         num_debug_samples: int = 5,
         visual_token_format: str = "direct",
+        prompt_override: Optional[str] = None,
         **kwargs,
     ):
         super().__init__()
+
+        # Prompt override for simple (base) models
+        self.prompt_override = prompt_override
 
         # Setup accelerator for distributed training
         accelerator = Accelerator()

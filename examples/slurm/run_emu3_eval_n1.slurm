@@ -8,8 +8,12 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
 #SBATCH --time=00:59:00
-#SBATCH --output=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_emu3_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_emu3_%j.err
+#SBATCH --output=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_emu3_%j.out
+#SBATCH --error=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_emu3_%j.err
+
+# Unset SSL_CERT_FILE to avoid FileNotFoundError inside NGC container
+# (host path /etc/ssl/ca-bundle.pem doesn't exist in container)
+unset SSL_CERT_FILE
 
 TASKS="ai2d" #"pope,gqa,vqav2_val,mmmu_val_group_img,mme,ai2d,docvqa,infovqa,ocrbench_v2,chartqa"
 BATCH_SIZE=1
@@ -24,8 +28,8 @@ EMU_MAX_PIXELS="${EMU_MAX_PIXELS:-$((1024*1024))}"
 DEBUG_SAMPLES="false"
 NUM_DEBUG_SAMPLES=5
 
-RES_PATH="/iopsstor/scratch/cscs/$USER/PDM/results/lmms_eval/emu3_results"
-EVAL_DIR=/iopsstor/scratch/cscs/$USER/lmms-eval
+RES_PATH="/capstor/scratch/cscs/$USER/PDM/results/lmms_eval/emu3_results"
+EVAL_DIR=/capstor/scratch/cscs/$USER/lmms-eval
 OFFLINE_DATASETS="true"
 
 # Parse optional arguments
@@ -101,25 +105,11 @@ else
     unset HF_DATASETS_OFFLINE
 fi
 
-echo "###Setup Packages & environment#####"
-echo ""
-echo "<<Current Packages>>"
-pip list
-echo ""
-
-echo "📦 Setting up lmms-eval package..."
-cd "$EVAL_DIR" || exit
-pip uninstall jupyterlab -y  # Uninstall conflicting package
-pip install -e .
-
-echo "📦 Installing task-specific dependencies..."
-source "${EVAL_DIR}/examples/install_task_deps.sh" "${TASKS}" "${EVAL_DIR}"
-
-#echo "📦 Install Emu3 specific versions"
-#pip install -e .[emu3]
-
-echo "<<New Packages>>"
-pip list
+echo "Setting up dependencies..."
+python "${EVAL_DIR}/examples/install_deps.py" \
+    --model "${MODEL}" \
+    --tasks "${TASKS}" \
+    --eval-dir "${EVAL_DIR}"
 echo ""
 
 # Construct model_args parameter if MODEL_ARGS is non-empty

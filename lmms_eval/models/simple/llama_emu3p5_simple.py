@@ -43,6 +43,7 @@ class LlamaEmu3p5Simple(EMU3p5SimpleModel):
         skip_multi_image: bool = True,
         debug_samples: bool = False,
         num_debug_samples: int = 5,
+        prompt_override: Optional[str] = None,
         **kwargs,
     ) -> None:
         """
@@ -66,6 +67,8 @@ class LlamaEmu3p5Simple(EMU3p5SimpleModel):
             skip_multi_image: Skip multi-image samples
             debug_samples: Print debug samples
             num_debug_samples: Number of debug samples to print
+            prompt_override: Override the task prompt. Use {context}
+                to include original. Empty string = pure continuation.
         """
         super().__init__(
             model_descriptor=model_descriptor,
@@ -85,6 +88,7 @@ class LlamaEmu3p5Simple(EMU3p5SimpleModel):
             skip_multi_image=skip_multi_image,
             debug_samples=debug_samples,
             num_debug_samples=num_debug_samples,
+            prompt_override=prompt_override,
             **kwargs,
         )
 

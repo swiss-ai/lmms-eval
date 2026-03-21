@@ -6,7 +6,6 @@ import PIL
 import torch
 from accelerate import Accelerator, DistributedType
 from accelerate.state import AcceleratorState
-from decord import VideoReader, cpu
 from torchvision.transforms.functional import to_pil_image
 from tqdm import tqdm
 from transformers import AutoConfig, AutoProcessor, MllamaForConditionalGeneration
@@ -15,6 +14,12 @@ from lmms_eval import utils
 from lmms_eval.api.instance import Instance
 from lmms_eval.api.model import lmms
 from lmms_eval.api.registry import register_model
+
+try:
+    from decord import VideoReader, cpu
+except ImportError:
+    VideoReader = None
+    cpu = None
 
 warnings.filterwarnings("ignore")
 
@@ -39,8 +44,6 @@ class LlamaVision(lmms):
         **kwargs,
     ) -> None:
         super().__init__()
-        # Do not use kwargs for now
-        assert kwargs == {}, f"Unexpected kwargs: {kwargs}"
 
         accelerator = Accelerator()
         if accelerator.num_processes > 1 and device_map == "":
@@ -56,6 +59,10 @@ class LlamaVision(lmms):
         self._model = MllamaForConditionalGeneration.from_pretrained(pretrained, revision=revision, torch_dtype=dtype, device_map=self.device_map, trust_remote_code=trust_remote_code, attn_implementation=attn_implementation)
         self.model.eval()
         self.processor = AutoProcessor.from_pretrained(pretrained)
+        self._tokenizer = self.processor.tokenizer
+        self._config = self.model.config
+        self._max_length = kwargs.get("max_length", 2048)
+        self.batch_size_per_gpu = int(batch_size)
         if accelerator.num_processes > 1 and device_map == "":
             assert accelerator.distributed_type in [DistributedType.FSDP, DistributedType.MULTI_GPU, DistributedType.DEEPSPEED], "Unsupported distributed type provided. Only DDP and FSDP are supported."
             # If you want to use DistributedType.DEEPSPEED, you have to run accelerate config before using the model
@@ -153,6 +160,8 @@ class LlamaVision(lmms):
         return new_list
 
     def load_video(self, video_path, max_frames_num):
+        if VideoReader is None:
+            raise ImportError("decord is required for video processing. Install it via `pip install decord`.")
         if type(video_path) == str:
             vr = VideoReader(video_path, ctx=cpu(0))
         else:

@@ -8,8 +8,8 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
 #SBATCH --time=12:00:00
-#SBATCH --output=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_llama_vision_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_llama_vision_%j.err
+#SBATCH --output=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_llama_vision_%j.out
+#SBATCH --error=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_llama_vision_%j.err
 
 # Unset SSL_CERT_FILE to avoid FileNotFoundError inside NGC container
 # (host path /etc/ssl/ca-bundle.pem doesn't exist in container)
@@ -20,8 +20,8 @@ BATCH_SIZE=1
 MODEL="llama_vision"
 MODEL_PATH=""        # Required: path to HF model or HF hub identifier (e.g. "meta-llama/Llama-3.2-11B-Vision-Instruct")
 ATTN_IMPLEMENTATION="sdpa"
-RES_PATH="/iopsstor/scratch/cscs/$USER/PDM/results/lmms_eval/llama_vision_results"
-EVAL_DIR=/iopsstor/scratch/cscs/$USER/lmms-eval
+RES_PATH="/capstor/scratch/cscs/$USER/PDM/results/lmms_eval/llama_vision_results"
+EVAL_DIR=/capstor/scratch/cscs/$USER/lmms-eval
 OFFLINE_DATASETS="true"
 
 # Wandb logging (disabled by default, use --wandb to enable)
@@ -122,23 +122,11 @@ else
     unset HF_DATASETS_OFFLINE
 fi
 
-echo "###Setup Packages & environment#####"
-echo ""
-echo "<<Current Packages>>"
-pip list
-echo ""
-
-echo "Setting up lmms-eval package..."
-cd "$EVAL_DIR" || exit
-pip uninstall jupyterlab -y  # Uninstall conflicting package
-pip install -e .
-pip install -e ".[metrics]"
-
-echo "Installing task-specific dependencies..."
-source "${EVAL_DIR}/examples/install_task_deps.sh" "${TASKS}" "${EVAL_DIR}"
-
-echo "<<New Packages>>"
-pip list
+echo "Setting up dependencies..."
+python "${EVAL_DIR}/examples/install_deps.py" \
+    --model "${MODEL}" \
+    --tasks "${TASKS}" \
+    --eval-dir "${EVAL_DIR}"
 echo ""
 
 # Build model_args with required parameters
