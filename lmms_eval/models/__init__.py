@@ -1,7 +1,6 @@
 import importlib
 import os
 import sys
-from typing import Literal
 
 from loguru import logger
 
@@ -107,6 +106,12 @@ AVAILABLE_CHAT_TEMPLATE_MODELS = {
     "async_openai": "AsyncOpenAIChat",
     "longvila": "LongVila",
     "llava_onevision1_5": "Llava_OneVision1_5",
+    "emu3": "EMU3",
+    "emu3p5": "EMU3_5",
+    "llama_emu3": "LlamaEmu3Chat",
+    "llama_emu3p5": "LlamaEmu3p5Chat",
+    "apertus_emu3": "ApertusEmu3Chat",
+    "apertus_emu3p5": "ApertusEmu3p5Chat",
 }
 
 

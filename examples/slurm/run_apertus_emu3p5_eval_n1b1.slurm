@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=a-infra01
-#SBATCH --job-name=eval-apertus-emu3
+#SBATCH --job-name=eval-apertus-emu3_5
 #SBATCH --environment=emu3
 #SBATCH --nodes=1
 #SBATCH --exclusive
@@ -8,8 +8,8 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
 #SBATCH --time=12:00:00
-#SBATCH --output=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3_%j.err
+#SBATCH --output=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3p5_%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3p5_%j.err
 
 # Unset SSL_CERT_FILE to avoid FileNotFoundError inside NGC container
 # (host path /etc/ssl/ca-bundle.pem doesn't exist in container)
@@ -17,16 +17,16 @@ unset SSL_CERT_FILE
 
 TASKS="mmmu_val_group_img,vqav2_val" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa
 BATCH_SIZE=1
-MODEL="apertus_emu3"
+MODEL="apertus_emu3p5"
 MODEL_PATH=""        # Required: path to HF model or HF hub identifier (e.g. "org/model-name")
 TOKENIZER_PATH=""    # Required: path to tokenizer or HF hub identifier (defaults to MODEL_PATH)
-RES_PATH="/iopsstor/scratch/cscs/$USER/PDM/results/lmms_eval/apertus_emu3_results"
+RES_PATH="/iopsstor/scratch/cscs/$USER/PDM/results/lmms_eval/apertus_emu3p5_results"
 EVAL_DIR=/iopsstor/scratch/cscs/$USER/lmms-eval
 OFFLINE_DATASETS="true"
 
-# Emu3 default pixel ranges (use arithmetic expressions like 700*700)
-EMU_MIN_PIXELS=$((128*128))
-EMU_MAX_PIXELS=$((700*700))
+# Emu3.5 default pixel ranges (use arithmetic expressions like 1400*1400)
+EMU_MIN_PIXELS=$((256*256))
+EMU_MAX_PIXELS=$((1400*1400))
 
 # Debug mode (disabled by default)
 DEBUG_SAMPLES="false"

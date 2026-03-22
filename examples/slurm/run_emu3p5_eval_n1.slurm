@@ -1,0 +1,140 @@
+#!/bin/bash
+#SBATCH --account=a-infra01
+#SBATCH --job-name=eval-emu3p5
+#SBATCH --environment=emu3
+#SBATCH --nodes=1
+#SBATCH --exclusive
+#SBATCH --partition=normal
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=285
+#SBATCH --time=01:00:00
+#SBATCH --output=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_emu3p5_%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_emu3p5_%j.err
+
+# Tasks for Math often need judge GPT: mathvista,mathvision. Tabmwp not implemented
+
+TASKS="ai2d" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
+BATCH_SIZE=1  # for now only sequential processing possible for Emu3.5
+MODEL="emu3p5"
+
+PRETRAINED="${PRETRAINED:-BAAI/Emu3.5}"
+TOKENIZER_PATH="${TOKENIZER_PATH:-$PRETRAINED}"
+EMU_MIN_PIXELS="${EMU_MIN_PIXELS:-$((256*256))}"
+EMU_MAX_PIXELS="${EMU_MAX_PIXELS:-$((1400*1400))}"
+
+# Debug mode (disabled by default, use --debug [N] to enable)
+DEBUG_SAMPLES="false"
+NUM_DEBUG_SAMPLES=5
+
+RES_PATH="/iopsstor/scratch/cscs/$USER/PDM/results/lmms_eval/emu3p5_results"
+EVAL_DIR=/iopsstor/scratch/cscs/$USER/lmms-eval
+OFFLINE_DATASETS="true"
+
+# Parse optional arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --tasks)
+            TASKS="$2"
+            shift 2
+            ;;
+        --batch-size)
+            BATCH_SIZE="$2"
+            shift 2
+            ;;
+        --max-length)
+            MAX_LENGTH="$2"
+            shift 2
+            ;;
+        --debug)
+            DEBUG_SAMPLES="true"
+            if [[ -n "$2" && "$2" =~ ^[0-9]+$ ]]; then
+                NUM_DEBUG_SAMPLES="$2"
+                shift
+            fi
+            shift
+            ;;
+        --no-offline-datasets)
+            OFFLINE_DATASETS="false"
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+# Automatically get number of available GPUS to configure accelerate properly
+NUM_GPUS=$(echo "$CUDA_VISIBLE_DEVICES" | awk -F',' '{print NF}')
+echo "Number of GPUs available: $NUM_GPUS"
+echo "GPUS: $CUDA_VISIBLE_DEVICES"
+
+# ========== Build model_args ==========
+MODEL_ARGS="model_descriptor=$PRETRAINED"
+MODEL_ARGS="$MODEL_ARGS,tokenizer_path=$TOKENIZER_PATH"
+MODEL_ARGS="$MODEL_ARGS,emu_min_pixels=$EMU_MIN_PIXELS"
+MODEL_ARGS="$MODEL_ARGS,emu_max_pixels=$EMU_MAX_PIXELS"
+if [ "$DEBUG_SAMPLES" = "true" ]; then
+    MODEL_ARGS="$MODEL_ARGS,debug_samples=true,num_debug_samples=$NUM_DEBUG_SAMPLES"
+fi
+
+# Print configuration
+echo "========================================"
+echo "MLLM Evaluation Configuration"
+echo "========================================"
+echo "Model:                ${MODEL}"
+echo "Tasks:                ${TASKS}"
+echo "Batch size(per GPU):  ${BATCH_SIZE}"
+echo "Offline datasets:     ${OFFLINE_DATASETS}"
+echo "Debug samples:        ${DEBUG_SAMPLES} (${NUM_DEBUG_SAMPLES})"
+echo "Num GPU:              ${NUM_GPUS}"
+echo "Output-Path:          ${RES_PATH}"
+echo "Eval-Repo-Location:   ${EVAL_DIR}"
+echo "Model-Args:           ${MODEL_ARGS}"
+echo "========================================"
+echo ""
+
+# Run evaluation command
+echo "Running LM evaluation..."
+# Conditionally set/unset offline mode
+if [ "$OFFLINE_DATASETS" = "true" ]; then
+    export HF_DATASETS_OFFLINE=1
+else
+    unset HF_DATASETS_OFFLINE
+fi
+
+echo "###Setup Packages & environment#####"
+echo ""
+echo "<<Current Packages>>"
+pip list
+echo ""
+
+echo "📦 Setting up lmms-eval package..."
+cd "$EVAL_DIR" || exit
+pip uninstall jupyterlab -y  # Uninstall conflicting package
+pip install -e .
+
+echo "📦 Installing task-specific dependencies..."
+source "${EVAL_DIR}/examples/install_task_deps.sh" "${TASKS}" "${EVAL_DIR}"
+
+echo "📦 Install Emu3.5 specific versions"
+pip install -e .[emu3_5]
+
+echo "<<New Packages>>"
+pip list
+echo ""
+
+# Construct model_args parameter if MODEL_ARGS is non-empty
+MODEL_ARGS_PARAM=""
+if [ -n "${MODEL_ARGS}" ]; then
+    MODEL_ARGS_PARAM="--model_args ${MODEL_ARGS}"
+fi
+
+accelerate launch -m lmms_eval \
+    --model "${MODEL}" \
+    ${MODEL_ARGS_PARAM} \
+    --tasks "${TASKS}" \
+    --batch_size "${BATCH_SIZE}" \
+    --output_path "${RES_PATH}"
+
+echo "End Reached"
