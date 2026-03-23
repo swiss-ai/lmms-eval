@@ -14,6 +14,7 @@ logger.add(sys.stdout, level="WARNING", format=log_format)
 
 AVAILABLE_SIMPLE_MODELS = {
     "aero": "Aero",
+    "apertus_omni_simple": "ApertusOmniSimple",
     "apertus_emu3_simple": "ApertusEmu3Simple",
     "apertus_emu3p5_simple": "ApertusEmu3p5Simple",
     "aria": "Aria",
@@ -91,6 +92,7 @@ AVAILABLE_SIMPLE_MODELS = {
 }
 
 AVAILABLE_CHAT_TEMPLATE_MODELS = {
+    "apertus_omni": "ApertusOmniChat",
     "bagel_lmms_engine": "BagelLmmsEngine",
     "llava_hf": "LlavaHf",
     "qwen3_vl": "Qwen3_VL",

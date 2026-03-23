@@ -8,6 +8,8 @@ lm_cache
 build
 dist
 *.egg-info
+*.zip
+*.txt
 venv
 .vscode/
 temp
