@@ -8,8 +8,9 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
 #SBATCH --time=12:00:00
-#SBATCH --output=/iopsstor/scratch/cscs/%u/swissai/test/lmms-eval/logs/eval_apertus_omni_dp4_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/%u/swissai/test/lmms-eval/logs/eval_apertus_omni_dp4_%j.err
+#SBATCH --reservation=PA-2338-RL
+#SBATCH --output=/iopsstor/scratch/cscs/%u/swissai/lmms-eval/logs/eval_apertus_omni_dp4_%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/%u/swissai/lmms-eval/logs/eval_apertus_omni_dp4_%j.err
 
 set -euo pipefail
 # export VLLM_LOGGING_LEVEL=DEBUG
@@ -18,12 +19,13 @@ set -euo pipefail
 # export TORCH_DISTRIBUTED_DEBUG=DETAIL
 
 # ENSURE THESE VARIABLES ARE SET IN THE ENVIRONMENT OR PROVIDE DEFAULTS
-ROOT_DIR="/iopsstor/scratch/cscs/$USER/swissai/test"
+ROOT_DIR="/iopsstor/scratch/cscs/$USER/swissai/"
 VLLM_OMNI_DIR="${ROOT_DIR}/vllm-omni"
 EVAL_DIR="${ROOT_DIR}/lmms-eval"
 RES_PATH="${ROOT_DIR}/results/lmms_eval/apertus_omni_results/"
 
-TASKS="pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
+# TASKS="pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
+TASKS="vqa_rad,path_vqa" 
 BATCH_SIZE=4096
 MODEL="apertus_omni"
 OFFLINE_DATASETS="true"
@@ -37,6 +39,10 @@ STAGE_INIT_TIMEOUT="${STAGE_INIT_TIMEOUT:-1800}"
 TOKENIZER_PATH="${TOKENIZER_PATH:-/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_instruct}"
 STAGE_CONFIG_PATH="${STAGE_CONFIG_PATH:-${VLLM_OMNI_DIR}/vllm_omni/model_executor/stage_configs/apertus_dp4.yaml}"
 
+export HF_HOME="${HF_HOME:-${ROOT_DIR}/hf}"
+export NLTK_DATA="${NLTK_DATA:-${ROOT_DIR}/nltk_data}"
+
+
 export PYTHONPATH="${VLLM_OMNI_DIR}:${PYTHONPATH:-}"
 export APERTUS_OMNI_STAGE_CONFIG="${STAGE_CONFIG_PATH}"
 export VLLM_OMNI_APERTUS_IMAGE_TOKEN_CACHE_DIR="${ROOT_DIR}/cache/image_tokens/"
@@ -46,8 +52,6 @@ export VLLM_OMNI_APERTUS_IMAGE_TOKEN_CACHE_DISK_CACHE_KIB=$((5*1024*1024))
 export VLLM_OMNI_APERTUS_IMAGE_TOKEN_CACHE_DISK_MMAP_BYTES=$((5*1024*1024*1024))
 export VLLM_OMNI_APERTUS_IMAGE_TOKEN_CACHE_BUSY_TIMEOUT_MS=5000
 export VLLM_OMNI_APERTUS_IMAGE_TOKEN_CACHE_DISK_SYNCHRONOUS=NORMAL
-export HF_HOME="${HF_HOME:-${ROOT_DIR}/hf}"
-export NLTK_DATA="${NLTK_DATA:-${ROOT_DIR}/nltk_data}"
 # export OMP_NUM_THREADS="${OMP_NUM_THREADS:-16}"
 # export TOKENIZERS_PARALLELISM=false
 
@@ -169,9 +173,9 @@ cd "${VLLM_OMNI_DIR}" || exit 1
 python3 -m pip install -e . --no-build-isolation --no-deps
 
 cd "${EVAL_DIR}" || exit 1
-uv pip install -e ".[all]" --system
+python3 -m pip install -e ".[all]"
 source "${EVAL_DIR}/examples/install_task_deps.sh" "${TASKS}" "${EVAL_DIR}"
-pip install ipdb jieba distance apted lxml zss nltk datasets sacrebleu Polygon3
+python3 -m pip install ipdb jieba distance apted lxml zss nltk datasets sacrebleu Polygon3
 python3 -c "import nltk, os; nltk.download('wordnet', download_dir=os.environ['NLTK_DATA'], quiet=True)"
 
 EXTRA_ARGS=()
