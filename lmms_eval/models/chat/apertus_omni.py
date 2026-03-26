@@ -83,9 +83,25 @@ class ApertusOmniChat(ApertusOmniBaseModel):
                 transformed.append(msg)
         return transformed
 
+    @staticmethod
+    def _strip_audio_from_hf_messages(hf_messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        stripped_messages = []
+        for msg in hf_messages:
+            content = msg.get("content")
+            if isinstance(content, list):
+                stripped_messages.append(
+                    {
+                        **msg,
+                        "content": [part for part in content if part.get("type") != "audio"],
+                    }
+                )
+            else:
+                stripped_messages.append(msg)
+        return stripped_messages
+
     def _build_chat_prompt(self, chat_messages: ChatMessages, fallback_context: Any) -> str:
         hf_messages = chat_messages.to_hf_messages()
-        transformed_messages = self._chat_transform(hf_messages)
+        transformed_messages = self._chat_transform(self._strip_audio_from_hf_messages(hf_messages))
         try:
             return self.tokenizer.apply_chat_template(
                 transformed_messages,
@@ -121,10 +137,16 @@ class ApertusOmniChat(ApertusOmniBaseModel):
             prompt_text = str(prompt_dict.get("prompt", context))
             mm_data = prompt_dict.get("multi_modal_data") or {}
             image_data = mm_data.get("image") if isinstance(mm_data, dict) else None
+            audio_data = mm_data.get("audio") if isinstance(mm_data, dict) else None
             image_count = len(image_data) if isinstance(image_data, list) else (1 if image_data is not None else 0)
+            audio_count = len(audio_data) if isinstance(audio_data, list) else (1 if audio_data is not None else 0)
 
             sample_idx = self._debug_logged_samples + 1
-            eval_logger.info(f"[ApertusOmniChat Debug {sample_idx}/{self.debug_samples}] " f"task={task}, split={split}, doc_id={doc_id}, images={image_count}, " f"prompt_chars={len(prompt_text)}, output_chars={len(output_text)}")
+            eval_logger.info(
+                f"[ApertusOmniChat Debug {sample_idx}/{self.debug_samples}] "
+                f"task={task}, split={split}, doc_id={doc_id}, images={image_count}, audios={audio_count}, "
+                f"prompt_chars={len(prompt_text)}, output_chars={len(output_text)}"
+            )
             eval_logger.info(f"[ApertusOmniChat Debug {sample_idx}] gen_kwargs={gen_kwargs}")
             eval_logger.info(f"[ApertusOmniChat Debug {sample_idx}] input_prompt:\n{self._truncate_for_debug(prompt_text)}")
             eval_logger.info(f"[ApertusOmniChat Debug {sample_idx}] output_text:\n{self._truncate_for_debug(output_text)}")
@@ -136,7 +158,8 @@ class ApertusOmniChat(ApertusOmniBaseModel):
         counters = {
             "text_only": 0,
             "multi_image": 0,
-            "unsupported_modality": 0,
+            "audio_present": 0,
+            "unsupported_video": 0,
             "failed": 0,
             "skipped": 0,
         }
@@ -155,24 +178,28 @@ class ApertusOmniChat(ApertusOmniBaseModel):
             counters["skipped"] = 1
             return None, gen_kwargs, counters
 
-        if videos or audios:
-            counters["unsupported_modality"] = 1
+        if videos:
+            counters["unsupported_video"] = 1
             counters["skipped"] = 1
             return None, gen_kwargs, counters
 
         try:
             images = self._normalize_images(images)
+            audios = self._normalize_audios(audios)
         except Exception as e:
-            eval_logger.warning(f"ApertusOmniChat: failed to normalize images, returning empty output. Error: {e}")
+            eval_logger.warning(f"ApertusOmniChat: failed to normalize media, returning empty output. Error: {e}")
             counters["failed"] = 1
             counters["skipped"] = 1
             return None, gen_kwargs, counters
 
-        if len(images) == 0:
+        if len(images) == 0 and len(audios) == 0:
             counters["text_only"] = 1
             if self.skip_text_only:
                 counters["skipped"] = 1
                 return None, gen_kwargs, counters
+
+        if audios:
+            counters["audio_present"] = 1
 
         if len(images) > 1:
             counters["multi_image"] = 1
@@ -181,7 +208,7 @@ class ApertusOmniChat(ApertusOmniBaseModel):
                 return None, gen_kwargs, counters
 
         prompt = self._build_chat_prompt(chat_messages, context)
-        prompt_dict = self._build_prompt_dict(prompt, images)
+        prompt_dict = self._build_prompt_dict(prompt, images=images, audios=audios)
         return prompt_dict, gen_kwargs, counters
 
     def generate_until(self, requests: List[Instance]) -> List[str]:
@@ -192,7 +219,8 @@ class ApertusOmniChat(ApertusOmniBaseModel):
 
         text_only_count = 0
         multi_image_count = 0
-        unsupported_modality_count = 0
+        audio_present_count = 0
+        unsupported_video_count = 0
         failed_count = 0
         skipped_count = 0
 
@@ -210,7 +238,8 @@ class ApertusOmniChat(ApertusOmniBaseModel):
 
                     text_only_count += counters["text_only"]
                     multi_image_count += counters["multi_image"]
-                    unsupported_modality_count += counters["unsupported_modality"]
+                    audio_present_count += counters["audio_present"]
+                    unsupported_video_count += counters["unsupported_video"]
                     failed_count += counters["failed"]
                     skipped_count += counters["skipped"]
 
@@ -252,7 +281,8 @@ class ApertusOmniChat(ApertusOmniBaseModel):
                 f"(skip_text_only={self.skip_text_only}), "
                 f"multi-image={multi_image_count}/{len(requests)} "
                 f"(skip_multi_image={self.skip_multi_image}), "
-                f"unsupported(video/audio)={unsupported_modality_count}, "
+                f"audio-present={audio_present_count}/{len(requests)}, "
+                f"unsupported-video={unsupported_video_count}, "
                 f"skipped={skipped_count}, failures={failed_count}"
             )
 

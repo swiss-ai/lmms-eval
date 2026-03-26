@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import io
 import json
 import os
 import uuid
@@ -10,7 +11,19 @@ from typing import Any, Sequence
 
 from accelerate import Accelerator, DistributedType
 from loguru import logger as eval_logger
+import numpy as np
 from PIL import Image
+import torch
+
+try:
+    import librosa
+except ImportError:
+    librosa = None
+
+try:
+    import soundfile as sf
+except ImportError:
+    sf = None
 
 from lmms_eval.api.model import lmms
 
@@ -41,12 +54,66 @@ def _default_apertus_stage_config_path() -> str | None:
     return None
 
 
+def _default_apertus_audio_tokenizer_path() -> str:
+    return os.getenv(
+        "APERTUS_OMNI_AUDIO_TOKENIZER_PATH",
+        "/capstor/store/cscs/swissai/infra01/MLLM/wavtokenizer",
+    )
+
+
 def _to_pil_image(image_obj: Any) -> Image.Image:
     if isinstance(image_obj, Image.Image):
         return image_obj.convert("RGB")
     if isinstance(image_obj, str):
         return Image.open(image_obj).convert("RGB")
     raise TypeError(f"Unsupported image type for Apertus Omni adapter: {type(image_obj)}")
+
+
+def _is_scalar_number(value: Any) -> bool:
+    return isinstance(value, (int, float, np.integer, np.floating))
+
+
+def _is_audio_tuple(value: Any) -> bool:
+    return isinstance(value, tuple) and len(value) == 2 and _is_scalar_number(value[1])
+
+
+def _is_waveform_like(value: Any) -> bool:
+    if isinstance(value, np.ndarray):
+        return value.ndim >= 1
+    if torch.is_tensor(value):
+        return value.ndim >= 1
+    if isinstance(value, list):
+        return not value or all(_is_scalar_number(item) for item in value)
+    return False
+
+
+def _coerce_audio_waveform(audio_obj: Any) -> np.ndarray:
+    if isinstance(audio_obj, np.ndarray):
+        audio = audio_obj
+    elif torch.is_tensor(audio_obj):
+        audio = audio_obj.detach().cpu().numpy()
+    else:
+        audio = np.asarray(audio_obj)
+
+    if audio.ndim == 0:
+        raise ValueError("Audio waveform must have at least one dimension.")
+
+    if audio.ndim == 1:
+        return audio.astype(np.float32, copy=False)
+
+    if audio.ndim == 2:
+        if audio.shape[0] == 1:
+            audio = audio[0]
+        elif audio.shape[1] == 1:
+            audio = audio[:, 0]
+        elif audio.shape[0] <= audio.shape[1]:
+            audio = np.mean(audio, axis=0)
+        else:
+            audio = np.mean(audio, axis=1)
+        return audio.astype(np.float32, copy=False)
+
+    audio = np.reshape(audio, (-1,))
+    return audio.astype(np.float32, copy=False)
 
 
 class ApertusOmniBaseModel(lmms):
@@ -69,6 +136,15 @@ class ApertusOmniBaseModel(lmms):
         emu_max_pixels: int = 1400 * 1400,
         vq_trust_remote_code: bool = True,
         image_placeholder: str = "<|image|>",
+        audio_tokenizer_type: str = "wavtokenizer",
+        audio_tokenizer_name: str = "WavTokenizer40",
+        audio_tokenizer_device: str = "cuda",
+        audio_tokenizer_compile: bool = False,
+        audio_target_sampling_rate: int = 24000,
+        audio_default_sampling_rate: int = 16000,
+        audio_token_offset: int = 262344,
+        audio_vocab_size: int = 4096,
+        audio_tokenizer_path: str | None = None,
         tokenizer_path: str | None = None,
         **kwargs: Any,
     ) -> None:
@@ -130,6 +206,17 @@ class ApertusOmniBaseModel(lmms):
         self.emu_max_pixels = int(emu_max_pixels)
         self.vq_trust_remote_code = bool(vq_trust_remote_code)
         self.image_placeholder = image_placeholder
+        self.audio_tokenizer_type = str(audio_tokenizer_type)
+        self.audio_tokenizer_name = str(audio_tokenizer_name)
+        self.audio_tokenizer_device = str(audio_tokenizer_device)
+        self.audio_tokenizer_compile = bool(audio_tokenizer_compile)
+        self.audio_target_sampling_rate = int(audio_target_sampling_rate)
+        self.audio_default_sampling_rate = int(audio_default_sampling_rate)
+        self.audio_token_offset = int(audio_token_offset)
+        self.audio_vocab_size = int(audio_vocab_size)
+        if audio_tokenizer_path is None:
+            audio_tokenizer_path = _default_apertus_audio_tokenizer_path()
+        self.audio_tokenizer_path = audio_tokenizer_path
         self.tokenizer_path = str(kwargs.get("tokenizer", model_descriptor))
         eval_logger.info(f"ApertusOmni tokenizer path: {self.tokenizer_path}")
 
@@ -180,8 +267,66 @@ class ApertusOmniBaseModel(lmms):
     def _normalize_images(self, data: Any) -> list[Image.Image]:
         return [_to_pil_image(item) for item in self._flatten_once(data)]
 
+    def _iter_audio_items(self, data: Any) -> list[Any]:
+        if data is None:
+            return []
+        if _is_audio_tuple(data) or _is_waveform_like(data) or isinstance(data, (str, dict)):
+            return [data]
+        if isinstance(data, list):
+            return list(data)
+        if isinstance(data, tuple):
+            return list(data)
+        return [data]
+
+    def _load_audio_from_path(self, path: str) -> tuple[np.ndarray, int]:
+        if librosa is None:
+            raise ImportError("librosa is required to load audio paths for Apertus Omni audio inputs.")
+        audio, sr = librosa.load(path, sr=None, mono=True)
+        return _coerce_audio_waveform(audio), int(sr)
+
+    def _normalize_one_audio(self, item: Any) -> tuple[np.ndarray, int]:
+        if isinstance(item, str):
+            return self._load_audio_from_path(item)
+
+        if isinstance(item, dict):
+            if "array" in item:
+                sr = item.get("sampling_rate", item.get("sample_rate"))
+                if sr is None:
+                    raise ValueError("Decoded audio dict must include `sampling_rate`.")
+                return _coerce_audio_waveform(item["array"]), int(sr)
+
+            if "audio_array" in item:
+                sr = item.get("sr", item.get("sampling_rate", self.audio_default_sampling_rate))
+                return _coerce_audio_waveform(item["audio_array"]), int(sr)
+
+            if "bytes" in item:
+                if sf is None:
+                    raise ImportError("soundfile is required to decode byte-backed audio inputs.")
+                audio_bytes = item["bytes"]
+                if not isinstance(audio_bytes, (bytes, bytearray)):
+                    raise TypeError(f"Unsupported audio byte payload type: {type(audio_bytes)}")
+                audio, sr = sf.read(io.BytesIO(audio_bytes), dtype="float32", always_2d=False)
+                sr = item.get("sampling_rate", item.get("sample_rate", sr))
+                return _coerce_audio_waveform(audio), int(sr)
+
+            if "path" in item:
+                return self._load_audio_from_path(str(item["path"]))
+
+            raise TypeError(f"Unsupported audio dict keys for Apertus Omni adapter: {sorted(item.keys())}")
+
+        if _is_audio_tuple(item):
+            return _coerce_audio_waveform(item[0]), int(item[1])
+
+        if _is_waveform_like(item):
+            return _coerce_audio_waveform(item), self.audio_default_sampling_rate
+
+        raise TypeError(f"Unsupported audio type for Apertus Omni adapter: {type(item)}")
+
+    def _normalize_audios(self, data: Any) -> list[tuple[np.ndarray, int]]:
+        return [self._normalize_one_audio(item) for item in self._iter_audio_items(data)]
+
     def _build_mm_processor_kwargs(self) -> dict[str, Any]:
-        return {
+        mm_processor_kwargs = {
             "apertus_vq_hub": self.vq_hub,
             "apertus_vision_tokenizer_device": self.vision_tokenizer_device,
             "apertus_vision_tokenizer_dtype": self.vision_tokenizer_dtype,
@@ -189,12 +334,33 @@ class ApertusOmniBaseModel(lmms):
             "apertus_max_pixels": self.emu_max_pixels,
             "apertus_vq_trust_remote_code": self.vq_trust_remote_code,
             "apertus_image_placeholder": self.image_placeholder,
+            "apertus_audio_tokenizer_type": self.audio_tokenizer_type,
+            "apertus_audio_tokenizer_name": self.audio_tokenizer_name,
+            "apertus_audio_tokenizer_device": self.audio_tokenizer_device,
+            "apertus_audio_tokenizer_compile": self.audio_tokenizer_compile,
+            "apertus_audio_target_sampling_rate": self.audio_target_sampling_rate,
+            "apertus_audio_default_sampling_rate": self.audio_default_sampling_rate,
+            "apertus_audio_token_offset": self.audio_token_offset,
+            "apertus_audio_vocab_size": self.audio_vocab_size,
         }
+        if self.audio_tokenizer_path is not None:
+            mm_processor_kwargs["apertus_audio_tokenizer_path"] = self.audio_tokenizer_path
+        return mm_processor_kwargs
 
-    def _build_prompt_dict(self, prompt: str, images: list[Image.Image]) -> dict[str, Any]:
+    def _build_prompt_dict(
+        self,
+        prompt: str,
+        images: list[Image.Image] | None = None,
+        audios: list[tuple[np.ndarray, int]] | None = None,
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {"prompt": prompt}
+        multi_modal_data: dict[str, Any] = {}
         if images:
-            payload["multi_modal_data"] = {"image": images}
+            multi_modal_data["image"] = images
+        if audios:
+            multi_modal_data["audio"] = audios
+        if multi_modal_data:
+            payload["multi_modal_data"] = multi_modal_data
             payload["mm_processor_kwargs"] = self._build_mm_processor_kwargs()
         return payload
 

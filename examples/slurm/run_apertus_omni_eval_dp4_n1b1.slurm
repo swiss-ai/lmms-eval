@@ -25,6 +25,7 @@ EVAL_DIR="${ROOT_DIR}/lmms-eval"
 RES_PATH="${ROOT_DIR}/results/lmms_eval/apertus_omni_results/"
 
 # TASKS="pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
+# TASKS="mmau,voicebench,step2_audio_paralinguistic"
 TASKS="vqa_rad,path_vqa" 
 BATCH_SIZE=4096
 MODEL="apertus_omni"
@@ -38,6 +39,15 @@ STAGE_INIT_TIMEOUT="${STAGE_INIT_TIMEOUT:-1800}"
 
 TOKENIZER_PATH="${TOKENIZER_PATH:-/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_instruct}"
 STAGE_CONFIG_PATH="${STAGE_CONFIG_PATH:-${VLLM_OMNI_DIR}/vllm_omni/model_executor/stage_configs/apertus_dp4.yaml}"
+AUDIO_TOKENIZER_PATH="${AUDIO_TOKENIZER_PATH:-/capstor/store/cscs/swissai/infra01/MLLM/wavtokenizer}"
+AUDIO_TOKENIZER_TYPE="${AUDIO_TOKENIZER_TYPE:-wavtokenizer}"
+AUDIO_TOKENIZER_NAME="${AUDIO_TOKENIZER_NAME:-WavTokenizer40}"
+AUDIO_TOKENIZER_DEVICE="${AUDIO_TOKENIZER_DEVICE:-cuda}"
+AUDIO_TOKENIZER_COMPILE="${AUDIO_TOKENIZER_COMPILE:-false}"
+AUDIO_TARGET_SAMPLING_RATE="${AUDIO_TARGET_SAMPLING_RATE:-24000}"
+AUDIO_DEFAULT_SAMPLING_RATE="${AUDIO_DEFAULT_SAMPLING_RATE:-16000}"
+AUDIO_TOKEN_OFFSET="${AUDIO_TOKEN_OFFSET:-262344}"
+AUDIO_VOCAB_SIZE="${AUDIO_VOCAB_SIZE:-4096}"
 
 export HF_HOME="${HF_HOME:-${ROOT_DIR}/hf}"
 export NLTK_DATA="${NLTK_DATA:-${ROOT_DIR}/nltk_data}"
@@ -45,6 +55,7 @@ export NLTK_DATA="${NLTK_DATA:-${ROOT_DIR}/nltk_data}"
 
 export PYTHONPATH="${VLLM_OMNI_DIR}:${PYTHONPATH:-}"
 export APERTUS_OMNI_STAGE_CONFIG="${STAGE_CONFIG_PATH}"
+export APERTUS_OMNI_AUDIO_TOKENIZER_PATH="${AUDIO_TOKENIZER_PATH}"
 export VLLM_OMNI_APERTUS_IMAGE_TOKEN_CACHE_DIR="${ROOT_DIR}/cache/image_tokens/"
 export VLLM_OMNI_APERTUS_IMAGE_TOKEN_CACHE_PRELOAD_TO_RAM=true
 export VLLM_OMNI_APERTUS_IMAGE_TOKEN_CACHE_RAM_CACHE_KIB=$((5*1024*1024))
@@ -96,6 +107,43 @@ while [[ $# -gt 0 ]]; do
             export APERTUS_OMNI_STAGE_CONFIG="${STAGE_CONFIG_PATH}"
             shift 2
             ;;
+        --audio-tokenizer-path)
+            AUDIO_TOKENIZER_PATH="$2"
+            export APERTUS_OMNI_AUDIO_TOKENIZER_PATH="${AUDIO_TOKENIZER_PATH}"
+            shift 2
+            ;;
+        --audio-tokenizer-type)
+            AUDIO_TOKENIZER_TYPE="$2"
+            shift 2
+            ;;
+        --audio-tokenizer-name)
+            AUDIO_TOKENIZER_NAME="$2"
+            shift 2
+            ;;
+        --audio-tokenizer-device)
+            AUDIO_TOKENIZER_DEVICE="$2"
+            shift 2
+            ;;
+        --audio-tokenizer-compile)
+            AUDIO_TOKENIZER_COMPILE="$2"
+            shift 2
+            ;;
+        --audio-target-sampling-rate)
+            AUDIO_TARGET_SAMPLING_RATE="$2"
+            shift 2
+            ;;
+        --audio-default-sampling-rate)
+            AUDIO_DEFAULT_SAMPLING_RATE="$2"
+            shift 2
+            ;;
+        --audio-token-offset)
+            AUDIO_TOKEN_OFFSET="$2"
+            shift 2
+            ;;
+        --audio-vocab-size)
+            AUDIO_VOCAB_SIZE="$2"
+            shift 2
+            ;;
         --output-path)
             RES_PATH="$2"
             mkdir -p "${RES_PATH}"
@@ -133,6 +181,33 @@ fi
 if [[ "${MODEL_ARGS}" != *"stage_init_timeout="* ]]; then
     MODEL_ARGS="${MODEL_ARGS},stage_init_timeout=${STAGE_INIT_TIMEOUT}"
 fi
+if [[ "${MODEL_ARGS}" != *"audio_tokenizer_path="* ]]; then
+    MODEL_ARGS="${MODEL_ARGS},audio_tokenizer_path=${AUDIO_TOKENIZER_PATH}"
+fi
+if [[ "${MODEL_ARGS}" != *"audio_tokenizer_type="* ]]; then
+    MODEL_ARGS="${MODEL_ARGS},audio_tokenizer_type=${AUDIO_TOKENIZER_TYPE}"
+fi
+if [[ "${MODEL_ARGS}" != *"audio_tokenizer_name="* ]]; then
+    MODEL_ARGS="${MODEL_ARGS},audio_tokenizer_name=${AUDIO_TOKENIZER_NAME}"
+fi
+if [[ "${MODEL_ARGS}" != *"audio_tokenizer_device="* ]]; then
+    MODEL_ARGS="${MODEL_ARGS},audio_tokenizer_device=${AUDIO_TOKENIZER_DEVICE}"
+fi
+if [[ "${MODEL_ARGS}" != *"audio_tokenizer_compile="* ]]; then
+    MODEL_ARGS="${MODEL_ARGS},audio_tokenizer_compile=${AUDIO_TOKENIZER_COMPILE}"
+fi
+if [[ "${MODEL_ARGS}" != *"audio_target_sampling_rate="* ]]; then
+    MODEL_ARGS="${MODEL_ARGS},audio_target_sampling_rate=${AUDIO_TARGET_SAMPLING_RATE}"
+fi
+if [[ "${MODEL_ARGS}" != *"audio_default_sampling_rate="* ]]; then
+    MODEL_ARGS="${MODEL_ARGS},audio_default_sampling_rate=${AUDIO_DEFAULT_SAMPLING_RATE}"
+fi
+if [[ "${MODEL_ARGS}" != *"audio_token_offset="* ]]; then
+    MODEL_ARGS="${MODEL_ARGS},audio_token_offset=${AUDIO_TOKEN_OFFSET}"
+fi
+if [[ "${MODEL_ARGS}" != *"audio_vocab_size="* ]]; then
+    MODEL_ARGS="${MODEL_ARGS},audio_vocab_size=${AUDIO_VOCAB_SIZE}"
+fi
 
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
     NUM_GPUS=$(echo "${CUDA_VISIBLE_DEVICES}" | awk -F',' '{print NF}')
@@ -161,6 +236,12 @@ echo "Batch size:           ${BATCH_SIZE}"
 echo "Gen kwargs:           ${GEN_KWARGS:-<task-defaults>}"
 echo "Limit:                ${LIMIT:-<none>}"
 echo "Vision tok device:    ${VISION_TOKENIZER_DEVICE}"
+echo "Audio tok path:       ${AUDIO_TOKENIZER_PATH}"
+echo "Audio tok type/name:  ${AUDIO_TOKENIZER_TYPE} / ${AUDIO_TOKENIZER_NAME}"
+echo "Audio tok device:     ${AUDIO_TOKENIZER_DEVICE}"
+echo "Audio tok compile:    ${AUDIO_TOKENIZER_COMPILE}"
+echo "Audio sample rates:   target=${AUDIO_TARGET_SAMPLING_RATE}, default=${AUDIO_DEFAULT_SAMPLING_RATE}"
+echo "Audio token config:   offset=${AUDIO_TOKEN_OFFSET}, vocab=${AUDIO_VOCAB_SIZE}"
 echo "Offline datasets:     ${OFFLINE_DATASETS}"
 echo "Visible GPUs:         ${NUM_GPUS}"
 echo "Init timeout (s):     ${INIT_TIMEOUT}"
