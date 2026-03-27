@@ -18,7 +18,7 @@ LOG_BASE=/iopsstor/scratch/cscs/$USER/lmms-eval/logs/eval_llama_vision_$SLURM_JO
 exec > >(tee -a ${LOG_BASE}.log)
 exec 2> >(tee -a ${LOG_BASE}.log >&2)
 
-TASKS="medqa" #"medmcqa,pubmedqa,mmlu_medical,vqa_rad,path_vqa" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
+TASKS="pmc_vqa,slake" #"medqa,medmcqa,pubmedqa,mmlu_medical,vqa_rad,path_vqa" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
 BATCH_SIZE=16
 MODEL="llama_vision"
 MODEL_ARGS="pretrained=meta-llama/Llama-3.2-11B-Vision-Instruct"

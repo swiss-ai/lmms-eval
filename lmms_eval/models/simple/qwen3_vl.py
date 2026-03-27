@@ -312,7 +312,9 @@ class Qwen3_VL(lmms):
                 "max_new_tokens": 128,
                 "temperature": 0.0,  # Set to 0 for greedy default
                 "top_p": None,
+                "top_k": None,
                 "num_beams": 1,
+                "repetition_penalty": None,
             }
             # Update with provided kwargs
             current_gen_kwargs = {**default_gen_kwargs, **gen_kwargs}
@@ -325,17 +327,22 @@ class Qwen3_VL(lmms):
                 current_gen_kwargs["temperature"] = None
                 current_gen_kwargs["top_p"] = None
 
-            cont = self.model.generate(
-                **inputs,
-                eos_token_id=self.tokenizer.eos_token_id,
-                pad_token_id=pad_token_id,
-                do_sample=current_gen_kwargs["do_sample"],
-                temperature=current_gen_kwargs["temperature"],
-                top_p=current_gen_kwargs["top_p"],
-                num_beams=current_gen_kwargs["num_beams"],
-                max_new_tokens=current_gen_kwargs["max_new_tokens"],
-                use_cache=self.use_cache,
-            )
+            generate_kwargs = {
+                "eos_token_id": self.tokenizer.eos_token_id,
+                "pad_token_id": pad_token_id,
+                "do_sample": current_gen_kwargs["do_sample"],
+                "temperature": current_gen_kwargs["temperature"],
+                "top_p": current_gen_kwargs["top_p"],
+                "num_beams": current_gen_kwargs["num_beams"],
+                "max_new_tokens": current_gen_kwargs["max_new_tokens"],
+                "use_cache": self.use_cache,
+            }
+            if current_gen_kwargs.get("top_k") is not None:
+                generate_kwargs["top_k"] = current_gen_kwargs["top_k"]
+            if current_gen_kwargs.get("repetition_penalty") is not None:
+                generate_kwargs["repetition_penalty"] = current_gen_kwargs["repetition_penalty"]
+
+            cont = self.model.generate(**inputs, **generate_kwargs)
 
             generated_ids_trimmed = [out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, cont)]
             answers = self.processor.batch_decode(generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)

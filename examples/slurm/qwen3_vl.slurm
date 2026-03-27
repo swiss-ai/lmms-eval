@@ -18,10 +18,10 @@ LOG_BASE=/iopsstor/scratch/cscs/$USER/lmms-eval/logs/eval_qwen3_vl_$SLURM_JOB_ID
 exec > >(tee -a ${LOG_BASE}.log)
 exec 2> >(tee -a ${LOG_BASE}.log >&2)
 
-TASKS="vqa_rad,path_vqa" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
+TASKS="medqa" # "vqa_rad,path_vqa" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
 BATCH_SIZE=16
 MODEL="qwen3_vl"
-MODEL_ARGS="pretrained=Qwen/Qwen3-VL-8B-Instruct"
+MODEL_ARGS="pretrained=Qwen/Qwen3-VL-8B-Instruct,attn_implementation=flash_attention_2"
 RES_PATH="/iopsstor/scratch/cscs/$USER/PDM/results/lmms_eval/${MODEL}_results"
 EVAL_DIR=/iopsstor/scratch/cscs/$USER/lmms-eval
 HF_DATASETS_OFFLINE=0
@@ -78,6 +78,7 @@ accelerate launch -m lmms_eval \
     ${MODEL_ARGS_PARAM} \
     --tasks "${TASKS}" \
     --batch_size "${BATCH_SIZE}" \
-    --output_path "${RES_PATH}"
+    --output_path "${RES_PATH}" \
+    --gen_kwargs "temperature=0.7,top_p=0.8,top_k=20,max_new_tokens=4096,repetition_penalty=1.0"
 
 echo "End Reached"

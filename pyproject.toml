@@ -76,6 +76,7 @@ dependencies = [
     "sentence_transformers",
     "python-dotenv",
     "qwen-vl-utils>=0.0.14",
+    "rouge",
 ]
 
 [project.optional-dependencies]
@@ -109,6 +110,10 @@ vqa_rad = [
 path_vqa = [
     "rouge",
 ]
+slake = [
+    "rouge",
+]
+pmc_vqa = []
 gemini = [
     "google-generativeai",
 ]
