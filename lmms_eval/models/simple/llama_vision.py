@@ -178,8 +178,8 @@ class LlamaVision(lmms):
         pbar = tqdm(total=len(requests), disable=(self.rank != 0), desc="Model Responding")
 
         for contexts, gen_kwargs, doc_to_visual, doc_id, task, split in [reg.args for reg in requests]:
-            visuals = [doc_to_visual(self.task_dict[task][split][doc_id])]
-            visuals = self.flatten(visuals)
+            visual = doc_to_visual(self.task_dict[task][split][doc_id])
+            visuals = self.flatten([visual]) if visual is not None else []
 
             messages = [{"role": "user", "content": []}]
             images = []
@@ -196,7 +196,7 @@ class LlamaVision(lmms):
                 messages[-1]["content"].append({"type": "image"})
             messages[-1]["content"].append({"type": "text", "text": contexts})
             prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True)
-            inputs = self.processor(images, prompt, add_special_tokens=False, return_tensors="pt").to(self.model.device)
+            inputs = self.processor(images if images else None, prompt, add_special_tokens=False, return_tensors="pt").to(self.model.device)
 
             if "max_new_tokens" not in gen_kwargs:
                 gen_kwargs["max_new_tokens"] = 1024

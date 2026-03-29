@@ -139,14 +139,15 @@ class EMUChatModelMixin:
                     text_only_count += 1
                     if self.skip_text_only:
                         skipped_text_only += 1
-                    res.append("")
-                    self.cache_hook.add_partial(
-                        "generate_until",
-                        (ctx[idx], all_gen_kwargs[idx]),
-                        "",
-                    )
-                    pbar.update(1)
-                    continue
+                        res.append("")
+                        self.cache_hook.add_partial(
+                            "generate_until",
+                            (ctx[idx], all_gen_kwargs[idx]),
+                            "",
+                        )
+                        pbar.update(1)
+                        continue
+                    visual = []
 
                 # Check for multi-image samples
                 if len(visual) > 1:

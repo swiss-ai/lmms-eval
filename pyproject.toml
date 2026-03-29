@@ -75,6 +75,7 @@ dependencies = [
     "sentence_transformers",
     "python-dotenv",
     "qwen-vl-utils>=0.0.14",
+    "rouge",
 ]
 
 [project.optional-dependencies]
@@ -102,6 +103,16 @@ metrics = [
     "capture_metric",
     "Levenshtein",
 ]
+vqa_rad = [
+    "rouge",
+]
+path_vqa = [
+    "rouge",
+]
+slake = [
+    "rouge",
+]
+pmc_vqa = []
 gemini = [
     "google-generativeai",
 ]
@@ -111,6 +122,10 @@ reka = [
 ]
 qwen = [
     "decord",
+    "qwen_vl_utils",
+]
+qwen3_vl = [
+    "transformers>=4.51.0",
     "qwen_vl_utils",
 ]
 emu3 = [

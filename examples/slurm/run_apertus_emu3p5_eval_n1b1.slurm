@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --account=a-infra01
+#SBATCH --account=infra01
 #SBATCH --job-name=eval-apertus-emu3_5
-#SBATCH --environment=emu3
+#SBATCH --environment=/iopsstor/scratch/cscs/ahernnde/ncg_new_v2.toml
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --partition=normal
@@ -11,18 +11,30 @@
 #SBATCH --output=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3p5_%j.out
 #SBATCH --error=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3p5_%j.err
 
+# set -euo pipefail
+
+# Log base path
+LOG_BASE=/iopsstor/scratch/cscs/$USER/lmms-eval/logs/eval_apertus_emu3p5_$SLURM_JOB_ID
+
+# Create a combined log capturing stdout and stderr
+exec > >(tee -a ${LOG_BASE}.log)
+exec 2> >(tee -a ${LOG_BASE}.log >&2)
+
 # Unset SSL_CERT_FILE to avoid FileNotFoundError inside NGC container
 # (host path /etc/ssl/ca-bundle.pem doesn't exist in container)
 unset SSL_CERT_FILE
 
-TASKS="mmmu_val_group_img,vqav2_val" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa
-BATCH_SIZE=1
+TASKS="medqa,medmcqa,pubmedqa,mmlu_medical" # "vqa_rad,path_vqa" #mmmu_val_group_img,vqav2_val" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa
+BATCH_SIZE=16
 MODEL="apertus_emu3p5"
-MODEL_PATH=""        # Required: path to HF model or HF hub identifier (e.g. "org/model-name")
-TOKENIZER_PATH=""    # Required: path to tokenizer or HF hub identifier (defaults to MODEL_PATH)
-RES_PATH="/capstor/scratch/cscs/$USER/PDM/results/lmms_eval/apertus_emu3p5_results"
+MODEL_PATH="/capstor/store/cscs/swissai/infra01/MLLM/ablations/apertus-8b-img-SFT-32nodes-gbs512-mbs1-steps8030-img-text-seqlen8192-s2onlytxtloss/HF"        # Required: path to HF model or HF hub identifier (e.g. "org/model-name")
+# MODEL="apertus_emu3p5_simple"
+# MODEL_PATH="/capstor/store/cscs/swissai/infra01/MLLM/ablations/apertus-8b-img-pretrain-PAIRED-128nodes-gbs1024-mbs1-steps11081-img0.818-text0.1-seqlen8192-selectiveGoldfish-OCR-onlytxt/HF"
+TOKENIZER_PATH="/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_instruct"    # Required: path to tokenizer or HF hub identifier (defaults to MODEL_PATH)
+RES_PATH="/capstor/scratch/cscs/$USER/PDM/results/lmms_eval/${MODEL}_results"
 EVAL_DIR=/capstor/scratch/cscs/$USER/lmms-eval
-OFFLINE_DATASETS="true"
+OFFLINE_DATASETS="false"
+MAX_LENGTH=""
 
 # Emu3.5 default pixel ranges (use arithmetic expressions like 1400*1400)
 EMU_MIN_PIXELS=$((256*256))
@@ -133,7 +145,9 @@ python "${EVAL_DIR}/examples/install_deps.py" \
 echo ""
 
 # Build model_args with required parameters
-MODEL_ARGS="model_descriptor=${MODEL_PATH},tokenizer_path=${TOKENIZER_PATH}"
+if [ -n "$MODEL_PATH" ]; then
+    MODEL_ARGS="model_descriptor=${MODEL_PATH},tokenizer_path=${TOKENIZER_PATH}"
+fi
 if [ -n "$MAX_LENGTH" ]; then
     MODEL_ARGS="${MODEL_ARGS},max_length=${MAX_LENGTH}"
 fi
