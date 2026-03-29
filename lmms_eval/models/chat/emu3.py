@@ -173,13 +173,7 @@ class EMU3(EMU3EncoderBaseModel):
                         pbar.update(1)
                         continue
                     else:
-                        # EMU3 requires images - add empty answer
-                        res.append("")
-                        self.cache_hook.add_partial(
-                            "generate_until", (ctx[idx], all_gen_kwargs[idx]), ""
-                        )
-                        pbar.update(1)
-                        continue
+                        visual = []
 
                 # Check for multi-image samples (more than 1 image)
                 if len(visual) > 1:
@@ -201,12 +195,17 @@ class EMU3(EMU3EncoderBaseModel):
                         batch_data.append(
                             {"text": text, "image": img, "context": ctx[idx]}
                         )
-                else:
+                elif len(visual) == 1:
                     # Exactly 1 image - process normally
                     img = visual[0]
                     if isinstance(img, str):
                         img = Image.open(img)
                     batch_data.append({"text": text, "image": img, "context": ctx[idx]})
+                else:
+                    # Text-only sample
+                    batch_data.append(
+                        {"text": text, "image": None, "context": ctx[idx]}
+                    )
 
             # If all samples in batch were skipped, continue to next batch
             if len(batch_data) == 0:
@@ -216,12 +215,14 @@ class EMU3(EMU3EncoderBaseModel):
 
             # Prepare inputs for EMU3 processor
             texts = [item["text"] for item in batch_data]
-            processed_images = [item["image"] for item in batch_data]
+            processed_images = [
+                item["image"] for item in batch_data if item["image"] is not None
+            ]
 
             # Process inputs for EMU3
             inputs = self.processor(
                 text=texts,
-                image=processed_images,
+                image=processed_images if processed_images else None,
                 mode="U",  # Understanding mode
                 return_tensors="pt",
                 padding="longest",

@@ -39,7 +39,7 @@ class ApertusEmu3p5Simple(EMU3p5SimpleModel):
         use_cache: bool = True,
         emu_min_pixels: int = 256 * 256,
         emu_max_pixels: int = 1400 * 1400,
-        skip_text_only: bool = True,
+        skip_text_only: bool = False,
         skip_multi_image: bool = True,
         debug_samples: bool = False,
         num_debug_samples: int = 5,

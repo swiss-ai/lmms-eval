@@ -34,7 +34,7 @@ def medqa_doc_to_target(doc: Dict[str, Any]) -> str:
     """Return the ground-truth answer letter."""
     # Prefer explicit answer letter field when present
     if "answer_idx" in doc and isinstance(doc["answer_idx"], str) and len(doc["answer_idx"]) == 1:
-        return doc["answer_idx"].strip()
+        return doc["answer_idx"].strip().upper()
 
     # Some variants store the letter in "answer" directly
     ans = doc.get("answer")

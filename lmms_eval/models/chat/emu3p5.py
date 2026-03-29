@@ -65,7 +65,7 @@ class EMU3_5(EMU3p5EncoderBaseModel):
         use_cache: bool = True,
         emu_min_pixels: int = 256 * 256,
         emu_max_pixels: int = 1400 * 1400,
-        skip_text_only: bool = True,
+        skip_text_only: bool = False,
         skip_multi_image: bool = True,
         debug_samples: bool = False,
         num_debug_samples: int = 5,
@@ -206,13 +206,7 @@ class EMU3_5(EMU3p5EncoderBaseModel):
                         pbar.update(1)
                         continue
                     else:
-                        # EMU3.5 requires images - add empty answer
-                        res.append("")
-                        self.cache_hook.add_partial(
-                            "generate_until", (ctx[idx], all_gen_kwargs[idx]), ""
-                        )
-                        pbar.update(1)
-                        continue
+                        visual = []
 
                 # Check for multi-image samples (more than 1 image)
                 if len(visual) > 1:
@@ -231,10 +225,15 @@ class EMU3_5(EMU3p5EncoderBaseModel):
                         sample_data.append(
                             {"text": text, "image": visual[0], "context": ctx[idx]}
                         )
-                else:
+                elif len(visual) == 1:
                     # Exactly 1 image - process normally
                     sample_data.append(
                         {"text": text, "image": visual[0], "context": ctx[idx]}
+                    )
+                else:
+                    # Text-only sample
+                    sample_data.append(
+                        {"text": text, "image": None, "context": ctx[idx]}
                     )
 
             # If all samples in batch were skipped, continue to next batch
@@ -247,9 +246,11 @@ class EMU3_5(EMU3p5EncoderBaseModel):
             texts = [item["text"] for item in sample_data]
             images = [item["image"] for item in sample_data]
 
-            # Convert image URLs to PIL Images if needed
+            # Convert image URLs to PIL Images if needed, skip None
             loaded_images = []
             for img in images:
+                if img is None:
+                    continue
                 if isinstance(img, str):
                     loaded_images.append(Image.open(img))
                 else:

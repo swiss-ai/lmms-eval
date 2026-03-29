@@ -26,10 +26,19 @@ metric_list:
   - metric: bleu1
     aggregation: !function utils.agg_mean
     higher_is_better: true
+  - metric: bleu2
+    aggregation: !function utils.agg_mean
+    higher_is_better: true
+  - metric: bleu3
+    aggregation: !function utils.agg_mean
+    higher_is_better: true
   - metric: bleu4
     aggregation: !function utils.agg_mean
     higher_is_better: true
   - metric: rouge1
+    aggregation: !function utils.agg_mean
+    higher_is_better: true
+  - metric: rouge2
     aggregation: !function utils.agg_mean
     higher_is_better: true
   - metric: rougel

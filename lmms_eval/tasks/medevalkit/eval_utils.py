@@ -178,7 +178,7 @@ def judge_multi_choice(choices: List[str], answer: str, response: str) -> bool:
     answer = answer.strip().lower()
 
     if len(split_response) > 300:
-        pass
+        return False
     elif split_response == answer:
         return True
     elif split_response in alphas:

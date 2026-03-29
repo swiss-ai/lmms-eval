@@ -1,7 +1,7 @@
 dataset_path: RadGenome/PMC-VQA
 dataset_kwargs:
   data_files:
-    test: test_2.csv
+    test: test_clean.csv
 task: pmc_vqa
 test_split: test
 output_type: generate_until

@@ -125,14 +125,16 @@ class EMUSimpleModelMixin:
                 # Handle text-only samples
                 if not visual_list:
                     text_only_count += 1
-                    res.append("")
-                    self.cache_hook.add_partial(
-                        "generate_until",
-                        (context, gen_kwargs),
-                        "",
-                    )
-                    pbar.update(1)
-                    continue
+                    if self.skip_text_only:
+                        res.append("")
+                        self.cache_hook.add_partial(
+                            "generate_until",
+                            (context, gen_kwargs),
+                            "",
+                        )
+                        pbar.update(1)
+                        continue
+                    visual_list = []
 
                 # Handle multi-image samples
                 if len(visual_list) > 1:
