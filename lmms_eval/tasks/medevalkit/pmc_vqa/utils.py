@@ -27,7 +27,7 @@ def _get_images_dir() -> str:
         repo_type="dataset",
     )
     cache_dir = os.path.dirname(zip_path)
-    figures_dir = os.path.join(cache_dir, "figures")
+    figures_dir = os.path.join(cache_dir, "images")
     if not os.path.isdir(figures_dir):
         with zipfile.ZipFile(zip_path, "r") as zf:
             zf.extractall(cache_dir)
