@@ -23,7 +23,7 @@ def _get_images_dir() -> str:
         return _IMAGES_DIR
     zip_path = hf_hub_download(
         repo_id="RadGenome/PMC-VQA",
-        filename="images_2.zip",
+        filename="images.zip",
         repo_type="dataset",
     )
     cache_dir = os.path.dirname(zip_path)
