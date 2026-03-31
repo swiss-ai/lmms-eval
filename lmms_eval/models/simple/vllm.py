@@ -11,7 +11,6 @@ from typing import List, Optional, Tuple, Union
 
 import numpy as np
 from accelerate import Accelerator, DistributedType
-from decord import VideoReader, cpu
 from loguru import logger as eval_logger
 from PIL import Image
 from tqdm import tqdm
@@ -25,8 +24,10 @@ WORKERS = int(os.getenv("WORKERS", "32"))
 
 try:
     from vllm import LLM, SamplingParams
-except ImportError:
-    vllm = None
+except Exception as _vllm_err:
+    eval_logger.warning(f"Failed to import vllm: {_vllm_err}")
+    LLM = None
+    SamplingParams = None
 
 
 @register_model("vllm")
@@ -263,6 +264,8 @@ class VLLM(lmms):
 
     # Function to encode the video
     def encode_video(self, video_path):
+        from decord import VideoReader, cpu
+
         vr = VideoReader(video_path, ctx=cpu(0))
         total_frame_num = len(vr)
         uniform_sampled_frames = np.linspace(0, total_frame_num - 1, self.max_frame_num, dtype=int)

@@ -6,7 +6,7 @@
 #SBATCH --exclusive
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=285
+#SBATCH --cpus-per-task=288
 #SBATCH --time=12:00:00
 #SBATCH --output=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_llama_vision_%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_llama_vision_%j.err
@@ -18,7 +18,7 @@ LOG_BASE=/iopsstor/scratch/cscs/$USER/lmms-eval/logs/eval_llama_vision_$SLURM_JO
 exec > >(tee -a ${LOG_BASE}.log)
 exec 2> >(tee -a ${LOG_BASE}.log >&2)
 
-TASKS="pmc_vqa,slake" #"medqa,medmcqa,pubmedqa,mmlu_medical,vqa_rad,path_vqa" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
+TASKS="path_mmu_test_tiny" #"pmc_vqa,slake" #"medqa,medmcqa,pubmedqa,mmlu_medical,vqa_rad,path_vqa"
 BATCH_SIZE=16
 MODEL="llama_vision"
 MODEL_ARGS="pretrained=meta-llama/Llama-3.2-11B-Vision-Instruct"
@@ -26,7 +26,7 @@ RES_PATH="/iopsstor/scratch/cscs/$USER/PDM/results/lmms_eval/${MODEL}_results"
 EVAL_DIR=/iopsstor/scratch/cscs/$USER/lmms-eval
 HF_DATASETS_OFFLINE=0
 
-# Automatically get number of available GPUS to configure accelerate properöy
+# Automatically get number of available GPUS to configure accelerate properly
 NUM_GPUS=$(echo "$CUDA_VISIBLE_DEVICES" | awk -F',' '{print NF}')
 echo "Number of GPUs available: $NUM_GPUS"
 echo "GPUS: $CUDA_VISIBLE_DEVICES"

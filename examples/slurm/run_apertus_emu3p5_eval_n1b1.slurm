@@ -146,11 +146,9 @@ echo ""
 echo "Setting up lmms-eval package..."
 cd "$EVAL_DIR" || exit
 pip uninstall jupyterlab -y  # Uninstall conflicting package
-pip install -e .
-pip install -e ".[metrics]"
-pip install -e ".[emu3_5]"
-
-pip install "Transformers>=4.56,<5"
+unset PIP_CONSTRAINT
+pip install "transformers>=4.56,<5"
+pip install -e ".[emu3_5,metrics]"
 
 echo "Installing task-specific dependencies..."
 source "${EVAL_DIR}/examples/install_task_deps.sh" "${TASKS}" "${EVAL_DIR}"

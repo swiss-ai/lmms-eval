@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --account=infra01
 #SBATCH --job-name=eval-qwen3_vl
-#SBATCH --environment=/iopsstor/scratch/cscs/ahernnde/ncg_new_v2.toml
+#SBATCH --environment=/users/mikhaika/.edf/lmms_eval_vllm.toml
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=285
+#SBATCH --cpus-per-task=288
 #SBATCH --time=12:00:00
 #SBATCH --output=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_qwen3_vl_%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_qwen3_vl_%j.err
@@ -18,10 +18,10 @@ LOG_BASE=/iopsstor/scratch/cscs/$USER/lmms-eval/logs/eval_qwen3_vl_$SLURM_JOB_ID
 exec > >(tee -a ${LOG_BASE}.log)
 exec 2> >(tee -a ${LOG_BASE}.log >&2)
 
-TASKS="medqa" # "vqa_rad,path_vqa" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
-BATCH_SIZE=16
-MODEL="qwen3_vl"
-MODEL_ARGS="pretrained=Qwen/Qwen3-VL-8B-Instruct,attn_implementation=flash_attention_2"
+TASKS="path_mmu_test_tiny" #,pmc_vqa,slake,medqa,pubmedqa,mmlu_medical,vqa_rad" # medmcqa, path_vqa
+BATCH_SIZE=64
+MODEL="vllm"
+MODEL_ARGS="model=Qwen/Qwen3-VL-8B-Instruct,tensor_parallel_size=4,gpu_memory_utilization=0.9,dtype=bfloat16,enforce_eager=True"
 RES_PATH="/iopsstor/scratch/cscs/$USER/PDM/results/lmms_eval/${MODEL}_results"
 EVAL_DIR=/iopsstor/scratch/cscs/$USER/lmms-eval
 HF_DATASETS_OFFLINE=0
@@ -57,8 +57,8 @@ echo ""
 echo "📦 Setting up lmms-eval package..."
 cd "$EVAL_DIR" || exit
 pip uninstall jupyterlab -y  # Uninstall conflicting package
+unset PIP_CONSTRAINT
 pip install -e .
-pip install -e ".[qwen3_vl]"
 
 echo "📦 Installing task-specific dependencies..."
 source "${EVAL_DIR}/examples/install_task_deps.sh" "${TASKS}" "${EVAL_DIR}"
@@ -73,7 +73,7 @@ if [ -n "${MODEL_ARGS}" ]; then
     MODEL_ARGS_PARAM="--model_args ${MODEL_ARGS}"
 fi
 
-accelerate launch -m lmms_eval \
+python3 -m lmms_eval \
     --model "${MODEL}" \
     ${MODEL_ARGS_PARAM} \
     --tasks "${TASKS}" \
