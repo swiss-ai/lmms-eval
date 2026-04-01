@@ -29,7 +29,7 @@ mkdir -p "$IMAGE_DIR"
 enroot remove -f build-env 2>/dev/null || true
 enroot create --name build-env "$BASE_SQSH"
 
-# Install vllm + upgrade transformers (keep torch/NCCL/CUDA intact)
+# Install updated packages inside the container
 enroot start --root --rw build-env bash <<'ENROOT_SCRIPT'
     set -ex
     # Remove NGC constraint file that pins incompatible package versions
@@ -43,27 +43,29 @@ enroot start --root --rw build-env bash <<'ENROOT_SCRIPT'
     python3 -c "import torch; print(f'torch: {torch.__version__}')"
     python3 -c "import transformers; print(f'transformers: {transformers.__version__}')"
 
-    pip install --upgrade --force-reinstall --no-deps "transformers>=4.56,<5"
-    pip install --upgrade "accelerate>=0.29.1" "numpy<2"
+    # Install torch 2.10.0+cu129 from PyTorch index (prebuilt aarch64 wheel)
+    pip install \
+        "torch==2.10.0" "torchaudio==2.10.0" "torchvision==0.25.0" \
+        --index-url https://download.pytorch.org/whl/cu129
 
-    # Install vllm v0.18.0 from source, preserving existing NGC torch
-    git clone --depth 1 --branch v0.11.0 https://github.com/vllm-project/vllm.git /tmp/vllm
-    cd /tmp/vllm
-    python3 use_existing_torch.py
-    pip install -r requirements/build.txt
-    # Limit parallel compile jobs to avoid OOM
-    MAX_JOBS=50 pip install --no-build-isolation .
-    cd /
-    rm -rf /tmp/vllm
+    # Install vllm 0.18.1 (prebuilt aarch64 wheel, pins transformers>=4.56,<5)
+    pip install "vllm==0.18.1"
 
-    # Downgrade numpy after vllm build (NGC modules compiled against numpy 1.x)
+    # Rebuild flash_attn against new torch to fix ABI mismatch
+    MAX_JOBS=4 NVCC_THREADS=4 pip install --upgrade --no-build-isolation flash-attn
+
+    # Upgrade transformers to latest compatible with vllm (4.57.x)
+    pip install --upgrade "transformers>=4.56,<5"
+    pip install --upgrade "accelerate>=0.29.1"
+
+    # Downgrade numpy to <2 (NGC compiled modules expect numpy 1.x ABI)
     pip install "numpy<2"
 
     echo "=== After ==="
     python3 -c "import torch; print(f'torch: {torch.__version__}')"
     python3 -c "import transformers; print(f'transformers: {transformers.__version__}')"
+    python3 -c "import vllm; print(f'vllm: {vllm.__version__}')"
     python3 -c "from accelerate import Accelerator; print('accelerate OK')"
-    pip show vllm | grep Version
 ENROOT_SCRIPT
 
 # Export to squashfs

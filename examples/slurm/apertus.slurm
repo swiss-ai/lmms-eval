@@ -22,7 +22,7 @@ exec 2> >(tee -a ${LOG_BASE}.log >&2)
 TASKS="medqa,medmcqa,pubmedqa,mmlu_medical"
 BATCH_SIZE=64
 MODEL="vllm"
-MODEL_ARGS="model=swiss-ai/Apertus-8B-Instruct-2509,tensor_parallel_size=1,gpu_memory_utilization=0.9,dtype=bfloat16,enforce_eager=True"
+MODEL_ARGS="model=swiss-ai/Apertus-8B-Instruct-2509,tensor_parallel_size=1,gpu_memory_utilization=0.9,dtype=bfloat16"
 RES_PATH="/iopsstor/scratch/cscs/$USER/PDM/results/lmms_eval/apertus_8b_results"
 EVAL_DIR=/iopsstor/scratch/cscs/$USER/lmms-eval
 HF_DATASETS_OFFLINE=0
@@ -74,7 +74,7 @@ if [ -n "${MODEL_ARGS}" ]; then
     MODEL_ARGS_PARAM="--model_args ${MODEL_ARGS}"
 fi
 
-python3 -m lmms_eval \
+torchrun --nproc_per_node=4 -m lmms_eval \
     --model "${MODEL}" \
     ${MODEL_ARGS_PARAM} \
     --tasks "${TASKS}" \
