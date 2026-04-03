@@ -93,7 +93,8 @@ audio = [
     "editdistance",
     "zhconv",
     "librosa",
-    "soundfile"
+    "soundfile",
+    "torchcodec>=0.9,<0.10",
 ]
 metrics = [
     "pywsd",

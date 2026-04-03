@@ -19,14 +19,14 @@ set -euo pipefail
 # export TORCH_DISTRIBUTED_DEBUG=DETAIL
 
 # ENSURE THESE VARIABLES ARE SET IN THE ENVIRONMENT OR PROVIDE DEFAULTS
-ROOT_DIR="/iopsstor/scratch/cscs/$USER/swissai/"
+ROOT_DIR="/iopsstor/scratch/cscs/$USER/swissai/apertus_vllm_omni"
 VLLM_OMNI_DIR="${ROOT_DIR}/vllm-omni"
 EVAL_DIR="${ROOT_DIR}/lmms-eval"
 RES_PATH="${ROOT_DIR}/results/lmms_eval/apertus_omni_results/"
 
-# TASKS="pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
+TASKS="pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
 # TASKS="mmau,voicebench,step2_audio_paralinguistic"
-TASKS="vqa_rad,path_vqa" 
+# TASKS="vqa_rad,path_vqa" 
 BATCH_SIZE=4096
 MODEL="apertus_omni"
 OFFLINE_DATASETS="true"

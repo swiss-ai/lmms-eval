@@ -83,25 +83,58 @@ class ApertusOmniChat(ApertusOmniBaseModel):
                 transformed.append(msg)
         return transformed
 
-    @staticmethod
-    def _strip_audio_from_hf_messages(hf_messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        stripped_messages = []
+    def _replace_media_with_placeholders(self, hf_messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        rewritten_messages = []
         for msg in hf_messages:
             content = msg.get("content")
             if isinstance(content, list):
-                stripped_messages.append(
+                rewritten_parts = []
+                for part in content:
+                    part_type = part.get("type")
+                    if part_type == "audio":
+                        rewritten_parts.append({"type": "text", "text": self.audio_placeholder})
+                    elif part_type == "image":
+                        rewritten_parts.append({"type": "text", "text": self.image_placeholder})
+                    else:
+                        rewritten_parts.append(part)
+                rewritten_messages.append(
                     {
                         **msg,
-                        "content": [part for part in content if part.get("type") != "audio"],
+                        "content": rewritten_parts,
                     }
                 )
             else:
-                stripped_messages.append(msg)
-        return stripped_messages
+                rewritten_messages.append(msg)
+        return rewritten_messages
+
+    def _render_fallback_prompt(self, hf_messages: list[dict[str, Any]], fallback_context: Any) -> str:
+        rendered_messages: list[str] = []
+        for msg in hf_messages:
+            role = str(msg.get("role", "user"))
+            content = msg.get("content")
+
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                parts: list[str] = []
+                for part in content:
+                    if not isinstance(part, dict):
+                        continue
+                    if part.get("type") == "text":
+                        parts.append(str(part.get("text", "")))
+                text = "".join(parts)
+            else:
+                text = ""
+
+            rendered_messages.append(f"{role}: {text}".strip())
+
+        prompt = "\n".join(item for item in rendered_messages if item).strip()
+        return prompt or str(fallback_context)
 
     def _build_chat_prompt(self, chat_messages: ChatMessages, fallback_context: Any) -> str:
         hf_messages = chat_messages.to_hf_messages()
-        transformed_messages = self._chat_transform(self._strip_audio_from_hf_messages(hf_messages))
+        rewritten_messages = self._replace_media_with_placeholders(hf_messages)
+        transformed_messages = self._chat_transform(rewritten_messages)
         try:
             return self.tokenizer.apply_chat_template(
                 transformed_messages,
@@ -110,7 +143,7 @@ class ApertusOmniChat(ApertusOmniBaseModel):
             )
         except Exception as e:
             eval_logger.warning(f"ApertusOmniChat: apply_chat_template failed; falling back to raw context. Error: {e}")
-            return str(fallback_context)
+            return self._render_fallback_prompt(rewritten_messages, fallback_context)
 
     def _truncate_for_debug(self, text: str) -> str:
         if self.debug_max_chars <= 0 or len(text) <= self.debug_max_chars:

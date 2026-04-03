@@ -26,6 +26,7 @@ class ApertusOmniSimple(ApertusOmniBaseModel):
         counters = {
             "text_only": 0,
             "multi_image": 0,
+            "audio_present": 0,
             "failed": 0,
             "skipped": 0,
         }
@@ -36,18 +37,28 @@ class ApertusOmniSimple(ApertusOmniBaseModel):
         try:
             sample = self.task_dict[task][split][doc_id]
             visuals = self._invoke_extractor(doc_to_visual, sample)
-            images = self._normalize_images(visuals)
+            images: list[Any] = []
+            audios: list[Any] = []
+            try:
+                images = self._normalize_images(visuals)
+            except Exception:
+                images = []
+            if not images:
+                audios = self._normalize_audios(visuals)
         except Exception as e:
             eval_logger.warning(f"ApertusOmniSimple: failed to parse request visuals, returning empty output. Error: {e}")
             counters["failed"] = 1
             counters["skipped"] = 1
             return None, gen_kwargs, counters
 
-        if len(images) == 0:
+        if len(images) == 0 and len(audios) == 0:
             counters["text_only"] = 1
             if self.skip_text_only:
                 counters["skipped"] = 1
                 return None, gen_kwargs, counters
+
+        if audios:
+            counters["audio_present"] = len(audios)
 
         if len(images) > 1:
             counters["multi_image"] = 1
@@ -55,7 +66,7 @@ class ApertusOmniSimple(ApertusOmniBaseModel):
                 counters["skipped"] = 1
                 return None, gen_kwargs, counters
 
-        prompt_dict = self._build_prompt_dict(str(contexts), images)
+        prompt_dict = self._build_prompt_dict(str(contexts), images=images or None, audios=audios or None)
         return prompt_dict, gen_kwargs, counters
 
     def generate_until(self, requests: List[Instance]) -> List[str]:
@@ -66,6 +77,7 @@ class ApertusOmniSimple(ApertusOmniBaseModel):
 
         text_only_count = 0
         multi_image_count = 0
+        audio_present_count = 0
         failed_count = 0
         skipped_count = 0
 
@@ -83,6 +95,7 @@ class ApertusOmniSimple(ApertusOmniBaseModel):
 
                     text_only_count += counters["text_only"]
                     multi_image_count += counters["multi_image"]
+                    audio_present_count += counters["audio_present"]
                     failed_count += counters["failed"]
                     skipped_count += counters["skipped"]
 
@@ -113,6 +126,7 @@ class ApertusOmniSimple(ApertusOmniBaseModel):
                 f"(skip_text_only={self.skip_text_only}), "
                 f"multi-image={multi_image_count}/{len(requests)} "
                 f"(skip_multi_image={self.skip_multi_image}), "
+                f"audio-present={audio_present_count}/{len(requests)}, "
                 f"skipped={skipped_count}, failures={failed_count}"
             )
 

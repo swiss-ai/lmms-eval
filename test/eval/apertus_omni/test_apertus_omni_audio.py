@@ -12,6 +12,7 @@ if "sqlitedict" not in sys.modules:
     sys.modules["sqlitedict"] = types.SimpleNamespace(SqliteDict=dict)
 
 from lmms_eval.models.chat.apertus_omni import ApertusOmniChat
+from lmms_eval.protocol import ChatMessages
 
 
 class _FakeTokenizer:
@@ -29,6 +30,30 @@ class _FakeTokenizer:
         return "formatted prompt"
 
 
+class _FailingTokenizer(_FakeTokenizer):
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=False):
+        raise ValueError("no chat template")
+
+
+class _FakeAudioDecoder:
+    def __init__(self, array, sampling_rate):
+        self._array = np.asarray(array, dtype=np.float32)
+        self._sampling_rate = int(sampling_rate)
+
+    def __getitem__(self, key):
+        if key == "array":
+            return self._array
+        if key == "sampling_rate":
+            return self._sampling_rate
+        raise KeyError(key)
+
+    def get_all_samples(self):
+        return SimpleNamespace(data=self._array, sample_rate=self._sampling_rate)
+
+    def get_samples_played_in_range(self, _start, _end):
+        return SimpleNamespace(sample_rate=self._sampling_rate)
+
+
 class ApertusOmniAudioTest(unittest.TestCase):
     def _build_chat_model(self) -> ApertusOmniChat:
         model = ApertusOmniChat.__new__(ApertusOmniChat)
@@ -41,6 +66,7 @@ class ApertusOmniAudioTest(unittest.TestCase):
         model.emu_max_pixels = 1400 * 1400
         model.vq_trust_remote_code = True
         model.image_placeholder = "<|image|>"
+        model.audio_placeholder = "<|audio|>"
         model.audio_tokenizer_type = "wavtokenizer"
         model.audio_tokenizer_name = "WavTokenizer40"
         model.audio_tokenizer_device = "cuda"
@@ -59,6 +85,28 @@ class ApertusOmniAudioTest(unittest.TestCase):
         model._debug_logged_samples = 0
         return model
 
+    def test_build_chat_prompt_fallback_keeps_media_placeholders(self):
+        model = self._build_chat_model()
+        model.tokenizer = _FailingTokenizer()
+        chat_messages = ChatMessages(
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "url": "image.png"},
+                        {"type": "audio", "url": {"bytes": b"fake", "path": "clip.wav"}},
+                        {"type": "text", "text": "Pick the correct answer."},
+                    ],
+                }
+            ]
+        )
+
+        prompt = model._build_chat_prompt(chat_messages, "fallback context")
+
+        self.assertIn("<|image|>", prompt)
+        self.assertIn("<|audio|>", prompt)
+        self.assertIn("Pick the correct answer.", prompt)
+
     def test_normalize_decoded_audio_dict(self):
         model = self._build_chat_model()
         audios = model._normalize_audios(
@@ -70,6 +118,16 @@ class ApertusOmniAudioTest(unittest.TestCase):
         self.assertEqual(sr, 22050)
         self.assertEqual(waveform.dtype, np.float32)
         self.assertTrue(np.allclose(waveform, np.array([0.1, -0.2, 0.3], dtype=np.float32)))
+
+    def test_normalize_torchcodec_audio_decoder(self):
+        model = self._build_chat_model()
+        audios = model._normalize_audios(_FakeAudioDecoder([0.25, -0.5, 0.75], 24000))
+
+        self.assertEqual(len(audios), 1)
+        waveform, sr = audios[0]
+        self.assertEqual(sr, 24000)
+        self.assertEqual(waveform.dtype, np.float32)
+        self.assertTrue(np.allclose(waveform, np.array([0.25, -0.5, 0.75], dtype=np.float32)))
 
     def test_make_one_request_packs_audio_and_audio_processor_kwargs(self):
         model = self._build_chat_model()
@@ -108,10 +166,12 @@ class ApertusOmniAudioTest(unittest.TestCase):
         self.assertFalse(mm_kwargs["apertus_audio_tokenizer_compile"])
         self.assertEqual(mm_kwargs["apertus_audio_token_offset"], 262344)
         self.assertEqual(mm_kwargs["apertus_audio_vocab_size"], 4096)
+        self.assertEqual(mm_kwargs["apertus_audio_placeholder"], "<|audio|>")
 
         tokenizer_messages = model.tokenizer.calls[0]["messages"]
         user_parts = tokenizer_messages[0]["content"]["parts"]
-        self.assertEqual([part["type"] for part in user_parts], ["text"])
+        self.assertEqual([part["type"] for part in user_parts], ["text", "text"])
+        self.assertEqual(user_parts[0]["text"], "<|audio|>")
 
     def test_make_one_request_packs_image_and_audio_together(self):
         model = self._build_chat_model()
@@ -143,7 +203,33 @@ class ApertusOmniAudioTest(unittest.TestCase):
 
         tokenizer_messages = model.tokenizer.calls[0]["messages"]
         user_parts = tokenizer_messages[0]["content"]["parts"]
-        self.assertEqual([part["type"] for part in user_parts], ["image", "text"])
+        self.assertEqual([part["type"] for part in user_parts], ["text", "text", "text"])
+        self.assertEqual(user_parts[0]["text"], "<|image|>")
+        self.assertEqual(user_parts[1]["text"], "<|audio|>")
+
+    def test_make_one_request_image_only_does_not_inject_audio(self):
+        model = self._build_chat_model()
+        sample = {
+            "image": Image.new("RGB", (2, 2), color="white"),
+        }
+        model.task_dict = {"task": {"split": [sample]}}
+
+        raw_messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "url": sample["image"]},
+                    {"type": "text", "text": "Describe the image."},
+                ],
+            }
+        ]
+        request = SimpleNamespace(arguments=("fallback context", lambda doc: raw_messages, {}, 0, "task", "split"))
+
+        prompt_dict, _gen_kwargs, counters = model.make_one_request(request)
+
+        self.assertEqual(counters["audio_present"], 0)
+        self.assertIn("image", prompt_dict["multi_modal_data"])
+        self.assertNotIn("audio", prompt_dict["multi_modal_data"])
 
     def test_make_one_request_still_skips_video(self):
         model = self._build_chat_model()

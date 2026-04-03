@@ -83,8 +83,12 @@ def _is_waveform_like(value: Any) -> bool:
     if torch.is_tensor(value):
         return value.ndim >= 1
     if isinstance(value, list):
-        return not value or all(_is_scalar_number(item) for item in value)
+        return bool(value) and all(_is_scalar_number(item) for item in value)
     return False
+
+
+def _is_audio_decoder_like(value: Any) -> bool:
+    return hasattr(value, "get_all_samples") and hasattr(value, "get_samples_played_in_range")
 
 
 def _coerce_audio_waveform(audio_obj: Any) -> np.ndarray:
@@ -136,6 +140,7 @@ class ApertusOmniBaseModel(lmms):
         emu_max_pixels: int = 1400 * 1400,
         vq_trust_remote_code: bool = True,
         image_placeholder: str = "<|image|>",
+        audio_placeholder: str = "<|audio|>",
         audio_tokenizer_type: str = "wavtokenizer",
         audio_tokenizer_name: str = "WavTokenizer40",
         audio_tokenizer_device: str = "cuda",
@@ -145,6 +150,7 @@ class ApertusOmniBaseModel(lmms):
         audio_token_offset: int = 262344,
         audio_vocab_size: int = 4096,
         audio_tokenizer_path: str | None = None,
+        audio_tokenizer_codebase: str | None = None,
         tokenizer_path: str | None = None,
         **kwargs: Any,
     ) -> None:
@@ -206,6 +212,7 @@ class ApertusOmniBaseModel(lmms):
         self.emu_max_pixels = int(emu_max_pixels)
         self.vq_trust_remote_code = bool(vq_trust_remote_code)
         self.image_placeholder = image_placeholder
+        self.audio_placeholder = str(audio_placeholder)
         self.audio_tokenizer_type = str(audio_tokenizer_type)
         self.audio_tokenizer_name = str(audio_tokenizer_name)
         self.audio_tokenizer_device = str(audio_tokenizer_device)
@@ -217,6 +224,7 @@ class ApertusOmniBaseModel(lmms):
         if audio_tokenizer_path is None:
             audio_tokenizer_path = _default_apertus_audio_tokenizer_path()
         self.audio_tokenizer_path = audio_tokenizer_path
+        self.audio_tokenizer_codebase = audio_tokenizer_codebase
         self.tokenizer_path = str(kwargs.get("tokenizer", model_descriptor))
         eval_logger.info(f"ApertusOmni tokenizer path: {self.tokenizer_path}")
 
@@ -284,9 +292,30 @@ class ApertusOmniBaseModel(lmms):
         audio, sr = librosa.load(path, sr=None, mono=True)
         return _coerce_audio_waveform(audio), int(sr)
 
+    def _normalize_audio_decoder(self, item: Any) -> tuple[np.ndarray, int]:
+        try:
+            audio = item["array"]
+            sr = item["sampling_rate"]
+            return _coerce_audio_waveform(audio), int(sr)
+        except Exception:
+            pass
+
+        samples = item.get_all_samples()
+        audio = getattr(samples, "data", samples)
+        sr = getattr(samples, "sample_rate", None)
+        if sr is None:
+            zero_range = item.get_samples_played_in_range(0, 0)
+            sr = getattr(zero_range, "sample_rate", None)
+        if sr is None:
+            raise ValueError("Decoded audio object must expose a sampling rate.")
+        return _coerce_audio_waveform(audio), int(sr)
+
     def _normalize_one_audio(self, item: Any) -> tuple[np.ndarray, int]:
         if isinstance(item, str):
             return self._load_audio_from_path(item)
+
+        if _is_audio_decoder_like(item):
+            return self._normalize_audio_decoder(item)
 
         if isinstance(item, dict):
             if "array" in item:
@@ -334,6 +363,7 @@ class ApertusOmniBaseModel(lmms):
             "apertus_max_pixels": self.emu_max_pixels,
             "apertus_vq_trust_remote_code": self.vq_trust_remote_code,
             "apertus_image_placeholder": self.image_placeholder,
+            "apertus_audio_placeholder": self.audio_placeholder,
             "apertus_audio_tokenizer_type": self.audio_tokenizer_type,
             "apertus_audio_tokenizer_name": self.audio_tokenizer_name,
             "apertus_audio_tokenizer_device": self.audio_tokenizer_device,
@@ -345,6 +375,9 @@ class ApertusOmniBaseModel(lmms):
         }
         if self.audio_tokenizer_path is not None:
             mm_processor_kwargs["apertus_audio_tokenizer_path"] = self.audio_tokenizer_path
+        audio_tokenizer_codebase = getattr(self, "audio_tokenizer_codebase", None)
+        if audio_tokenizer_codebase is not None:
+            mm_processor_kwargs["apertus_audio_tokenizer_codebase"] = audio_tokenizer_codebase
         return mm_processor_kwargs
 
     def _build_prompt_dict(
