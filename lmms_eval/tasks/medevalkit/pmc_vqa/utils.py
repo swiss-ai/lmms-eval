@@ -6,6 +6,7 @@ from huggingface_hub import hf_hub_download
 from PIL import Image
 
 from lmms_eval.tasks.medevalkit.eval_utils import agg_mean  # noqa: F401
+from lmms_eval.tasks.medevalkit.eval_utils import no_image_doc_to_visual  # noqa: F401
 from lmms_eval.tasks.medevalkit.eval_utils import judge_multi_choice
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ from PIL import Image
 
 from lmms_eval.tasks.medevalkit.eval_utils import (
     judge_multi_choice,
+    no_image_doc_to_visual,  # noqa: F401
     strip_thinking,
 )
 from lmms_eval.tasks.path_mmu.path_mmu_dataset import build_dataset

@@ -217,3 +217,12 @@ def strip_thinking(text: str) -> str:
 def agg_mean(items: List) -> float:
     valid = [x for x in items if x is not None]
     return sum(valid) / len(valid) if valid else 0.0
+
+
+def no_image_doc_to_visual(doc) -> list:
+    """Return None — no image passed to the model.
+
+    Used for no-image baseline evaluation to test how much of a VQA
+    benchmark can be solved from the question text alone.
+    """
+    return [None]
