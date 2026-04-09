@@ -83,13 +83,8 @@ class EMUSimpleModelMixin:
             [req.args for req in requests], _collate, grouping=True
         )
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
-        num_iters = (
-            len(requests) // self.batch_size
-            if len(requests) % self.batch_size == 0
-            else len(requests) // self.batch_size + 1
-        )
         pbar = tqdm(
-            total=num_iters,
+            total=len(requests),
             disable=(self.rank != 0),
             desc="Model Responding",
         )
@@ -118,21 +113,23 @@ class EMUSimpleModelMixin:
             prompts = []
             images_list = []
             batch_contexts = []
+            chunk_size = len(contexts)
+            chunk_results = [None] * chunk_size
+            batch_to_chunk_idx = []
 
-            for context, visual_list in zip(contexts, visuals):
+            for idx, (context, visual_list) in enumerate(zip(contexts, visuals)):
                 total_samples += 1
 
                 # Handle text-only samples
                 if not visual_list:
                     text_only_count += 1
                     if self.skip_text_only:
-                        res.append("")
+                        chunk_results[idx] = ""
                         self.cache_hook.add_partial(
                             "generate_until",
                             (context, gen_kwargs),
                             "",
                         )
-                        pbar.update(1)
                         continue
                     visual_list = []
 
@@ -140,13 +137,12 @@ class EMUSimpleModelMixin:
                 if len(visual_list) > 1:
                     multi_image_count += 1
                     if self.skip_multi_image:
-                        res.append("")
+                        chunk_results[idx] = ""
                         self.cache_hook.add_partial(
                             "generate_until",
                             (context, gen_kwargs),
                             "",
                         )
-                        pbar.update(1)
                         continue
                     else:
                         # Take only first image
@@ -167,12 +163,18 @@ class EMUSimpleModelMixin:
                 bos = self.tokenizer.bos_token or ""
                 image_tokens = [self.image_placeholder] * len(pil_images)
                 prompt = bos + " ".join(image_tokens) + "\n" + context
+                batch_to_chunk_idx.append(idx)
                 prompts.append(prompt)
                 images_list.append(pil_images)
                 batch_contexts.append(context)
 
             # Skip if all filtered
             if len(prompts) == 0:
+                # Append skipped results in chunk order
+                for result in chunk_results:
+                    if result is not None:
+                        res.append(result)
+                        pbar.update(1)
                 continue
 
             # Encode images and inject vision tokens
@@ -244,11 +246,11 @@ class EMUSimpleModelMixin:
                 text_outputs[i] = output
 
             for i, (ans, context) in enumerate(zip(text_outputs, batch_contexts)):
-                res.append(ans)
+                chunk_idx = batch_to_chunk_idx[i]
+                chunk_results[chunk_idx] = ans
                 self.cache_hook.add_partial(
                     "generate_until", (context, gen_kwargs), ans
                 )
-                pbar.update(1)
 
                 # Debug output
                 if (
@@ -266,6 +268,12 @@ class EMUSimpleModelMixin:
                         answer_with_tokens=answers_with_tokens[i],
                         attention_mask=model_inputs["attention_mask"][i],
                     )
+
+            # Append all chunk results in correct order
+            for result in chunk_results:
+                if result is not None:
+                    res.append(result)
+                    pbar.update(1)
 
         # Reorder results
         res = re_ords.get_original(res)

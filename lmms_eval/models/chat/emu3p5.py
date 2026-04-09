@@ -160,12 +160,9 @@ class EMU3_5(EMU3p5EncoderBaseModel):
             grouping=True,
         )
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
-        num_iters = (
-            len(requests) // self.batch_size
-            if len(requests) % self.batch_size == 0
-            else len(requests) // self.batch_size + 1
+        pbar = tqdm(
+            total=len(requests), disable=(self.rank != 0), desc="Model Responding"
         )
-        pbar = tqdm(total=num_iters, disable=(self.rank != 0), desc="Model Responding")
 
         # iterate over batches
         for chunk in chunks:
@@ -182,6 +179,10 @@ class EMU3_5(EMU3p5EncoderBaseModel):
 
             # Extract media and track per-sample image counts
             sample_data = []
+            chunk_size = len(chat_messages)
+            chunk_results = [None] * chunk_size
+            batch_to_chunk_idx = []
+
             for idx, messages in enumerate(chat_messages):
                 total_samples += 1
                 visual, video, audio = messages.extract_media()
@@ -198,12 +199,12 @@ class EMU3_5(EMU3p5EncoderBaseModel):
                     text_only_count += 1
                     if self.skip_text_only:
                         skipped_text_only += 1
-                        # Add empty placeholder answer for this skipped sample
-                        res.append("")
+                        chunk_results[idx] = ""
                         self.cache_hook.add_partial(
-                            "generate_until", (ctx[idx], all_gen_kwargs[idx]), ""
+                            "generate_until",
+                            (ctx[idx], all_gen_kwargs[idx]),
+                            "",
                         )
-                        pbar.update(1)
                         continue
                     else:
                         visual = []
@@ -213,31 +214,39 @@ class EMU3_5(EMU3p5EncoderBaseModel):
                     multi_image_count += 1
                     if self.skip_multi_image:
                         skipped_multi_image += 1
-                        # Add empty placeholder answer for this skipped sample
-                        res.append("")
+                        chunk_results[idx] = ""
                         self.cache_hook.add_partial(
-                            "generate_until", (ctx[idx], all_gen_kwargs[idx]), ""
+                            "generate_until",
+                            (ctx[idx], all_gen_kwargs[idx]),
+                            "",
                         )
-                        pbar.update(1)
                         continue
                     else:
                         # If not skipping, take only the first image
+                        batch_to_chunk_idx.append(idx)
                         sample_data.append(
                             {"text": text, "image": visual[0], "context": ctx[idx]}
                         )
                 elif len(visual) == 1:
                     # Exactly 1 image - process normally
+                    batch_to_chunk_idx.append(idx)
                     sample_data.append(
                         {"text": text, "image": visual[0], "context": ctx[idx]}
                     )
                 else:
                     # Text-only sample
+                    batch_to_chunk_idx.append(idx)
                     sample_data.append(
                         {"text": text, "image": None, "context": ctx[idx]}
                     )
 
             # If all samples in batch were skipped, continue to next batch
             if len(sample_data) == 0:
+                # Append skipped results in chunk order
+                for result in chunk_results:
+                    if result is not None:
+                        res.append(result)
+                        pbar.update(1)
                 continue
 
             gen_kwargs = all_gen_kwargs[0]
@@ -312,11 +321,11 @@ class EMU3_5(EMU3p5EncoderBaseModel):
                 )
 
             for i, (ans, item, text) in enumerate(zip(answers, sample_data, texts)):
-                res.append(ans)
+                chunk_idx = batch_to_chunk_idx[i]
+                chunk_results[chunk_idx] = ans
                 self.cache_hook.add_partial(
                     "generate_until", (item["context"], gen_kwargs), ans
                 )
-                pbar.update(1)
 
                 # Debug sample output (only on rank 0 to avoid duplicates)
                 if (
@@ -337,6 +346,12 @@ class EMU3_5(EMU3p5EncoderBaseModel):
 
                 eval_logger.debug(f"Question: {text}")
                 eval_logger.debug(f"Model Response: {ans}")
+
+            # Append all chunk results in correct order
+            for result in chunk_results:
+                if result is not None:
+                    res.append(result)
+                    pbar.update(1)
 
         # Reorder results back to original unsorted form
         res = re_ords.get_original(res)

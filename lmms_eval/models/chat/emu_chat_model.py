@@ -92,13 +92,8 @@ class EMUChatModelMixin:
             grouping=True,
         )
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
-        num_iters = (
-            len(requests) // self.batch_size
-            if len(requests) % self.batch_size == 0
-            else len(requests) // self.batch_size + 1
-        )
         pbar = tqdm(
-            total=num_iters,
+            total=len(requests),
             disable=(self.rank != 0),
             desc="Model Responding",
         )
@@ -127,6 +122,9 @@ class EMUChatModelMixin:
 
             # Extract media and prepare batch
             batch_data = []
+            chunk_size = len(chat_messages)
+            chunk_results = [None] * chunk_size
+            batch_to_chunk_idx = []
 
             for idx, chat_message in enumerate(chat_messages):
                 total_samples += 1
@@ -139,13 +137,12 @@ class EMUChatModelMixin:
                     text_only_count += 1
                     if self.skip_text_only:
                         skipped_text_only += 1
-                        res.append("")
+                        chunk_results[idx] = ""
                         self.cache_hook.add_partial(
                             "generate_until",
                             (ctx[idx], all_gen_kwargs[idx]),
                             "",
                         )
-                        pbar.update(1)
                         continue
                     visual = []
 
@@ -154,13 +151,12 @@ class EMUChatModelMixin:
                     multi_image_count += 1
                     if self.skip_multi_image:
                         skipped_multi_image += 1
-                        res.append("")
+                        chunk_results[idx] = ""
                         self.cache_hook.add_partial(
                             "generate_until",
                             (ctx[idx], all_gen_kwargs[idx]),
                             "",
                         )
-                        pbar.update(1)
                         continue
                     # else: process all images (multi-image supported)
 
@@ -177,6 +173,7 @@ class EMUChatModelMixin:
                         img = Image.open(img)
                     pil_images.append(img)
 
+                batch_to_chunk_idx.append(idx)
                 batch_data.append(
                     {
                         "messages": transformed_messages,
@@ -187,6 +184,11 @@ class EMUChatModelMixin:
 
             # Skip if all samples filtered
             if len(batch_data) == 0:
+                # Append skipped results in chunk order
+                for result in chunk_results:
+                    if result is not None:
+                        res.append(result)
+                        pbar.update(1)
                 continue
 
             gen_kwargs = all_gen_kwargs[0]
@@ -265,11 +267,11 @@ class EMUChatModelMixin:
                 )
 
             for i, (ans, item, text) in enumerate(zip(answers, batch_data, texts)):
-                res.append(ans)
+                chunk_idx = batch_to_chunk_idx[i]
+                chunk_results[chunk_idx] = ans
                 self.cache_hook.add_partial(
                     "generate_until", (item["context"], gen_kwargs), ans
                 )
-                pbar.update(1)
 
                 # Debug sample output
                 if (
@@ -290,6 +292,12 @@ class EMUChatModelMixin:
 
                 eval_logger.debug(f"Question: {text}")
                 eval_logger.debug(f"Model Response: {ans}")
+
+            # Append all chunk results in correct order
+            for result in chunk_results:
+                if result is not None:
+                    res.append(result)
+                    pbar.update(1)
 
         # Reorder results
         res = re_ords.get_original(res)
