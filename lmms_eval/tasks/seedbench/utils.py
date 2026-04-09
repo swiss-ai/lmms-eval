@@ -1,5 +1,22 @@
 import json
 
+# SEED-Bench-1 question_type_id → evaluation dimension mapping
+# Source: https://github.com/AILab-CVC/SEED-Bench/blob/main/DATASET.md
+QUESTION_TYPE_MAP = {
+    1: "scene_understanding",
+    2: "instance_identity",
+    3: "instance_attributes",
+    4: "instance_location",
+    5: "instances_counting",
+    6: "spatial_relation",
+    7: "instance_interaction",
+    8: "visual_reasoning",
+    9: "text_understanding",
+    10: "action_recognition",
+    11: "action_prediction",
+    12: "procedure_understanding",
+}
+
 
 def seed_doc_to_visual(doc):
     return [image.convert("RGB") for image in doc["image"]]
@@ -11,7 +28,9 @@ def seed_doc_to_text(doc):
     question += f"B. {doc['choice_b']}\n"
     question += f"C. {doc['choice_c']}\n"
     question += f"D. {doc['choice_d']}"
-    return f"{question}\nAnswer with the option's letter from the given choices directly."
+    return (
+        f"{question}\nAnswer with the option's letter from the given choices directly."
+    )
 
 
 def seed_process_result(doc, result):
@@ -20,8 +39,24 @@ def seed_process_result(doc, result):
         pred = pred[0]
     answer = doc["answer"]
     data_type = doc["data_type"]
+    result_data = {
+        "pred": pred,
+        "answer": answer,
+        "question_id": doc["question_id"],
+    }
 
-    return {f"seed_{data_type}": {"pred": pred, "answer": answer, "question_id": doc["question_id"]}, f"seed_all": {"pred": pred, "answer": answer, "question_id": doc["question_id"]}}
+    results = {
+        f"seed_{data_type}": result_data,
+        "seed_all": result_data,
+    }
+
+    # Add per-question-type metric
+    question_type_id = doc.get("question_type_id")
+    if question_type_id is not None and question_type_id in QUESTION_TYPE_MAP:
+        dimension = QUESTION_TYPE_MAP[question_type_id]
+        results[f"seed_{dimension}"] = result_data
+
+    return results
 
 
 def seed_aggregation_result(results):
@@ -38,7 +73,9 @@ def seed_aggregation_result_all(results):
     score = seed_aggregation_result(results)
     stored_results = []
     for result in results:
-        stored_results.append({"question_id": result["question_id"], "prediction": result["pred"]})
+        stored_results.append(
+            {"question_id": result["question_id"], "prediction": result["pred"]}
+        )
     with open("./seed_submission.json", "w") as f:
         json.dump(stored_results, f, indent=4)
     print("Storing files for seed_submission ...")

@@ -17,10 +17,55 @@ generation_kwargs:
 process_results: !function utils.mme_process_results
 # Note that the metric name can be either a registed metric function (such as the case for GQA) or a key name returned by process_results
 metric_list:
+  # Aggregate scores (sum of subtask scores)
   - metric: mme_perception_score
     aggregation: !function utils.mme_aggregate_results
     higher_is_better: true
   - metric: mme_cognition_score
+    aggregation: !function utils.mme_aggregate_results
+    higher_is_better: true
+  # Perception subtasks
+  - metric: mme_existence
+    aggregation: !function utils.mme_aggregate_results
+    higher_is_better: true
+  - metric: mme_count
+    aggregation: !function utils.mme_aggregate_results
+    higher_is_better: true
+  - metric: mme_position
+    aggregation: !function utils.mme_aggregate_results
+    higher_is_better: true
+  - metric: mme_color
+    aggregation: !function utils.mme_aggregate_results
+    higher_is_better: true
+  - metric: mme_posters
+    aggregation: !function utils.mme_aggregate_results
+    higher_is_better: true
+  - metric: mme_celebrity
+    aggregation: !function utils.mme_aggregate_results
+    higher_is_better: true
+  - metric: mme_scene
+    aggregation: !function utils.mme_aggregate_results
+    higher_is_better: true
+  - metric: mme_landmark
+    aggregation: !function utils.mme_aggregate_results
+    higher_is_better: true
+  - metric: mme_artwork
+    aggregation: !function utils.mme_aggregate_results
+    higher_is_better: true
+  - metric: mme_OCR
+    aggregation: !function utils.mme_aggregate_results
+    higher_is_better: true
+  # Cognition subtasks
+  - metric: mme_commonsense_reasoning
+    aggregation: !function utils.mme_aggregate_results
+    higher_is_better: true
+  - metric: mme_numerical_calculation
+    aggregation: !function utils.mme_aggregate_results
+    higher_is_better: true
+  - metric: mme_text_translation
+    aggregation: !function utils.mme_aggregate_results
+    higher_is_better: true
+  - metric: mme_code_reasoning
     aggregation: !function utils.mme_aggregate_results
     higher_is_better: true
 lmms_eval_specific_kwargs:
