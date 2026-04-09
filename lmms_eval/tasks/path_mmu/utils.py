@@ -4,9 +4,9 @@ from typing import Any, Dict, List
 from loguru import logger
 from PIL import Image
 
+from lmms_eval.tasks.medevalkit.eval_utils import no_image_doc_to_visual  # noqa: F401
 from lmms_eval.tasks.medevalkit.eval_utils import (
     judge_multi_choice,
-    no_image_doc_to_visual,  # noqa: F401
     strip_thinking,
 )
 from lmms_eval.tasks.path_mmu.path_mmu_dataset import build_dataset
@@ -34,11 +34,7 @@ def path_mmu_doc_to_text(
     for letter, opt in zip(CHOICE_LETTERS, options):
         choices.append(f"{letter}. {opt}")
     options_block = "\n".join(choices)
-    return (
-        f"Question: {question}\n"
-        f"Options:\n{options_block}\n"
-        "Answer with the option's letter from the given choices directly."
-    )
+    return f"Question: {question}\n" f"Options:\n{options_block}\n" "Answer with the option's letter from the given choices directly."
 
 
 def path_mmu_doc_to_target(doc: Dict[str, Any]) -> str:
@@ -94,9 +90,7 @@ def path_mmu_aggregate_results(results: List[Dict[str, Any]]) -> float:
                 if sub == cat or sub in cat_scores:
                     continue
                 acc_sub = _acc(subcat_scores[sub])
-                lines.append(
-                    f"    {sub:28s} {len(subcat_scores[sub]):>6d} {acc_sub:>8.4f}"
-                )
+                lines.append(f"    {sub:28s} {len(subcat_scores[sub]):>6d} {acc_sub:>8.4f}")
 
     lines.append("-" * 50)
     lines.append(f"  {'Overall':30s} {len(all_scores):>6d} {overall:>8.4f}")

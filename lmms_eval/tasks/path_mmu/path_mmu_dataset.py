@@ -158,9 +158,7 @@ def _copy_missing_images(data: dict, images_dir: str) -> None:
     if copied:
         logger.info(f"Copied {copied} images from local datasets")
     if missing:
-        logger.info(
-            f"{missing} images not found locally (likely deleted SocialPath tweets)"
-        )
+        logger.info(f"{missing} images not found locally (likely deleted SocialPath tweets)")
 
 
 # ---------------------------------------------------------------------------
@@ -275,10 +273,7 @@ def build_dataset(output_dir: Optional[str] = None) -> str:
                     split_records[hf_split].append(record)
                     available += 1
 
-    logger.info(
-        f"PathMMU: {available}/{total} samples with images "
-        f"({total - available} missing)"
-    )
+    logger.info(f"PathMMU: {available}/{total} samples with images " f"({total - available} missing)")
 
     # Save as HF DatasetDict
     ds_dict = {}
