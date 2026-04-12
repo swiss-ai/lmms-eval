@@ -48,15 +48,19 @@ enroot start --root --rw build-env bash <<'ENROOT_SCRIPT'
         "torch==2.10.0" "torchaudio==2.10.0" "torchvision==0.25.0" \
         --index-url https://download.pytorch.org/whl/cu129
 
-    # Install vllm 0.18.1 (prebuilt aarch64 wheel, pins transformers>=4.56,<5)
-    pip install "vllm==0.18.1"
+    # Install vllm 0.19.0 (prebuilt aarch64 wheel)
+    pip install "vllm==0.19.0"
 
     # Rebuild flash_attn against new torch to fix ABI mismatch
+    # vllm 0.19.0 bundles its own flash-attn kernels, but external flash-attn
+    # is still needed by some model code paths
     MAX_JOBS=4 NVCC_THREADS=4 pip install --upgrade --no-build-isolation flash-attn
 
-    # Upgrade transformers to latest compatible with vllm (4.57.x)
-    pip install --upgrade "transformers>=4.56,<5"
+    # Install transformers 5.5+ (vllm 0.19 pins <5 but actually supports 5.x)
     pip install --upgrade "accelerate>=0.29.1"
+    pip install --no-deps "transformers>=5.5.0"
+    pip install --upgrade "huggingface_hub>=1.5.0,<2.0"
+    pip install --upgrade "regex>=2026.4.4"
 
     # Downgrade numpy to <2 (NGC compiled modules expect numpy 1.x ABI)
     pip install "numpy<2"
@@ -69,10 +73,10 @@ enroot start --root --rw build-env bash <<'ENROOT_SCRIPT'
 ENROOT_SCRIPT
 
 # Export to squashfs
-enroot export --output "$IMAGE_DIR/${IMAGE_NAME}.sqsh" build-env
+enroot export --output "$IMAGE_DIR/${IMAGE_NAME}-v3.sqsh" build-env
 
 # Cleanup
 enroot remove -f build-env
 
-echo "Container saved to: $IMAGE_DIR/${IMAGE_NAME}.sqsh"
+echo "Container saved to: $IMAGE_DIR/${IMAGE_NAME}-v3.sqsh"
 echo "Done!"
