@@ -21,7 +21,7 @@ exec 2> >(tee -a ${LOG_BASE}.log >&2)
 TASKS="pmc_vqa,slake,vqa_rad,medqa,medmcqa,pubmedqa,mmlu_medical,path_vqa,path_mmu_test_tiny"
 BATCH_SIZE=16
 MODEL="vllm"
-MODEL_ARGS="model=OpenGVLab/InternVL3-78B,tensor_parallel_size=4,gpu_memory_utilization=0.95,dtype=bfloat16,max_model_len=8192"
+MODEL_ARGS="model=OpenGVLab/InternVL3-78B,tensor_parallel_size=4,gpu_memory_utilization=0.95,dtype=bfloat16,max_model_len=16384"
 RES_PATH="/iopsstor/scratch/cscs/$USER/PDM/results/lmms_eval/internvl3_78b_results"
 EVAL_DIR=/iopsstor/scratch/cscs/$USER/lmms-eval
 HF_DATASETS_OFFLINE=0
