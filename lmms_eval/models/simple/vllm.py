@@ -11,7 +11,7 @@ from typing import List, Optional, Tuple, Union
 
 import numpy as np
 from accelerate import Accelerator, DistributedType
-from decord import VideoReader, cpu
+# from decord import VideoReader, cpu
 from loguru import logger as eval_logger
 from PIL import Image
 from tqdm import tqdm
