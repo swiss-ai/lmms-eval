@@ -15,7 +15,7 @@
 # ========== Configuration Parameters ==========
 
 # Model paths (required - adjust these to your setup)
-PRETRAINED="${1:-/iopsstor/scratch/cscs/nirmiger/Megatron-LM/logs/Meg-Runs/image-extension/llama3-3b-2n-8192sl-120gbsz-0.5-0.5/HF}"
+PRETRAINED="${1:-/capstor/scratch/cscs/nirmiger/Megatron-LM/logs/Meg-Runs/image-extension/llama3-3b-2n-8192sl-120gbsz-0.5-0.5/HF}"
 TOKENIZER_PATH="${2:-/capstor/store/cscs/swissai/infra01/MLLM/llama3_vision_instruct_emu3_tokenizer}"
 
 # Task configuration

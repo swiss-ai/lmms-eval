@@ -7,26 +7,31 @@
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
-#SBATCH --time=12:00:00
-#SBATCH --output=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_llama_emu3p5_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/%u/lmms-eval/logs/eval_llama_emu3p5_%j.err
+#SBATCH --time=06:00:00
+#SBATCH --output=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_llama_emu3p5_%j.out
+#SBATCH --error=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_llama_emu3p5_%j.err
 
 # Unset SSL_CERT_FILE to avoid FileNotFoundError inside NGC container
 # (host path /etc/ssl/ca-bundle.pem doesn't exist in container)
 unset SSL_CERT_FILE
+
+cd /users/rkreft/scratch_capstor/lmms-eval
 
 TASKS="mmmu_val_group_img,vqav2_val" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa
 BATCH_SIZE=1
 MODEL="llama_emu3p5"
 MODEL_PATH=""        # Required: path to HF model or HF hub identifier (e.g. "org/model-name")
 TOKENIZER_PATH=""    # Required: path to tokenizer or HF hub identifier (defaults to MODEL_PATH)
-RES_PATH="/iopsstor/scratch/cscs/$USER/PDM/results/lmms_eval/llama_emu3p5_results"
-EVAL_DIR=/iopsstor/scratch/cscs/$USER/lmms-eval
-OFFLINE_DATASETS="true"
+RES_PATH="/capstor/scratch/cscs/$USER/PDM/results/lmms_eval/llama_emu3p5_results"
+EVAL_DIR=/capstor/scratch/cscs/$USER/lmms-eval
+OFFLINE_DATASETS="false"
 
 # Emu3.5 default pixel ranges (use arithmetic expressions like 1400*1400)
 EMU_MIN_PIXELS=$((256*256))
 EMU_MAX_PIXELS=$((1400*1400))
+
+# Limit number of samples per task (disabled by default)
+LIMIT=""
 
 # Debug mode (disabled by default, use --debug [N] to enable)
 DEBUG_SAMPLES="false"
@@ -61,6 +66,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --emu-max-pixels)
             EMU_MAX_PIXELS=$(($2))
+            shift 2
+            ;;
+        --limit)
+            LIMIT="$2"
             shift 2
             ;;
         --debug)
@@ -111,6 +120,7 @@ echo "Batch size(per GPU):  ${BATCH_SIZE}"
 echo "Emu min pixels:       ${EMU_MIN_PIXELS}"
 echo "Emu max pixels:       ${EMU_MAX_PIXELS}"
 echo "Offline datasets:     ${OFFLINE_DATASETS}"
+echo "Limit:                ${LIMIT:-none}"
 echo "Debug samples:        ${DEBUG_SAMPLES} (${NUM_DEBUG_SAMPLES})"
 echo "Num GPU:              ${NUM_GPUS}"
 echo "Output-Path:          ${RES_PATH}"
@@ -125,23 +135,11 @@ else
     unset HF_DATASETS_OFFLINE
 fi
 
-echo "###Setup Packages & environment#####"
-echo ""
-echo "<<Current Packages>>"
-pip list
-echo ""
-
-echo "Setting up lmms-eval package..."
-cd "$EVAL_DIR" || exit
-pip uninstall jupyterlab -y  # Uninstall conflicting package
-pip install -e .
-pip install -e ".[metrics]"
-
-echo "Installing task-specific dependencies..."
-source "${EVAL_DIR}/examples/install_task_deps.sh" "${TASKS}" "${EVAL_DIR}"
-
-echo "<<New Packages>>"
-pip list
+echo "Setting up dependencies..."
+python "${EVAL_DIR}/examples/install_deps.py" \
+    --model "${MODEL}" \
+    --tasks "${TASKS}" \
+    --eval-dir "${EVAL_DIR}"
 echo ""
 
 # Build model_args with required parameters
@@ -160,11 +158,17 @@ if [ "$DEBUG_SAMPLES" = "true" ]; then
 fi
 
 echo "Running LM evaluation..."
+LIMIT_FLAG=""
+if [ -n "$LIMIT" ]; then
+    LIMIT_FLAG="--limit ${LIMIT}"
+fi
+
 accelerate launch -m lmms_eval \
     --model "${MODEL}" \
     --model_args "${MODEL_ARGS}" \
     --tasks "${TASKS}" \
     --batch_size "${BATCH_SIZE}" \
-    --output_path "${RES_PATH}"
+    --output_path "${RES_PATH}" \
+    ${LIMIT_FLAG}
 
 echo "End Reached"

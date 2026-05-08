@@ -81,6 +81,9 @@ def escaped_split(text, sep_char, maxsplit=-1):
 
 
 def handle_arg_string(arg):
+    # Strip surrounding quotes left by _smart_comma_split
+    if len(arg) >= 2 and arg[0] in ("'", '"') and arg[-1] == arg[0]:
+        arg = arg[1:-1]
     if arg.lower() == "true":
         return True
     elif arg.lower() == "false":

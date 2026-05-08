@@ -1,7 +1,7 @@
 """
 Unified chat model mixin for EMU encoder models with chat template support.
 
-EMUEncoderModelMixin provides the shared generate_until() logic.
+EMUChatModelMixin provides the shared generate_until() logic.
 Concrete classes combine it with the appropriate base model.
 
 Inheriting models overwrite:
@@ -24,11 +24,12 @@ from lmms_eval import utils
 from lmms_eval.api.instance import Instance
 from lmms_eval.models.emu3_encoder_base_model import EMU3EncoderBaseModel
 from lmms_eval.models.emu3p5_encoder_base_model import EMU3p5EncoderBaseModel
+from lmms_eval.models.model_utils.debug_utils import log_debug_sample
 from lmms_eval.models.model_utils.gen_metrics import log_metrics
 from lmms_eval.protocol import ChatMessages
 
 
-class EMUEncoderModelMixin:
+class EMUChatModelMixin:
     """
     Mixin providing chat-mode generate_until() for EMU encoder models.
 
@@ -91,9 +92,8 @@ class EMUEncoderModelMixin:
             grouping=True,
         )
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
-        num_iters = len(requests) // self.batch_size if len(requests) % self.batch_size == 0 else len(requests) // self.batch_size + 1
         pbar = tqdm(
-            total=num_iters,
+            total=len(requests),
             disable=(self.rank != 0),
             desc="Model Responding",
         )
@@ -112,11 +112,19 @@ class EMUEncoderModelMixin:
             ) = zip(*chunk)
 
             # Get chat messages from dataset
-            chat_messages = [doc_to_messages[idx](self.task_dict[task][split][ids]) for idx, (ids, task, split) in enumerate(zip(doc_id, task, split))]
-            chat_messages: List[ChatMessages] = [ChatMessages(**{"messages": message}) for message in chat_messages]
+            chat_messages = [
+                doc_to_messages[idx](self.task_dict[task][split][ids])
+                for idx, (ids, task, split) in enumerate(zip(doc_id, task, split))
+            ]
+            chat_messages: List[ChatMessages] = [
+                ChatMessages(**{"messages": message}) for message in chat_messages
+            ]
 
             # Extract media and prepare batch
             batch_data = []
+            chunk_size = len(chat_messages)
+            chunk_results = [None] * chunk_size
+            batch_to_chunk_idx = []
 
             for idx, chat_message in enumerate(chat_messages):
                 total_samples += 1
@@ -129,27 +137,26 @@ class EMUEncoderModelMixin:
                     text_only_count += 1
                     if self.skip_text_only:
                         skipped_text_only += 1
-                    res.append("")
-                    self.cache_hook.add_partial(
-                        "generate_until",
-                        (ctx[idx], all_gen_kwargs[idx]),
-                        "",
-                    )
-                    pbar.update(1)
-                    continue
+                        chunk_results[idx] = ""
+                        self.cache_hook.add_partial(
+                            "generate_until",
+                            (ctx[idx], all_gen_kwargs[idx]),
+                            "",
+                        )
+                        continue
+                    visual = []
 
                 # Check for multi-image samples
                 if len(visual) > 1:
                     multi_image_count += 1
                     if self.skip_multi_image:
                         skipped_multi_image += 1
-                        res.append("")
+                        chunk_results[idx] = ""
                         self.cache_hook.add_partial(
                             "generate_until",
                             (ctx[idx], all_gen_kwargs[idx]),
                             "",
                         )
-                        pbar.update(1)
                         continue
                     # else: process all images (multi-image supported)
 
@@ -166,6 +173,7 @@ class EMUEncoderModelMixin:
                         img = Image.open(img)
                     pil_images.append(img)
 
+                batch_to_chunk_idx.append(idx)
                 batch_data.append(
                     {
                         "messages": transformed_messages,
@@ -176,13 +184,23 @@ class EMUEncoderModelMixin:
 
             # Skip if all samples filtered
             if len(batch_data) == 0:
+                # Append skipped results in chunk order
+                for result in chunk_results:
+                    if result is not None:
+                        res.append(result)
+                        pbar.update(1)
                 continue
 
             gen_kwargs = all_gen_kwargs[0]
 
             # Apply chat template with image placeholder
             messages_list = [item["messages"] for item in batch_data]
-            texts = [self.tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True) for msgs in messages_list]
+            texts = [
+                self.tokenizer.apply_chat_template(
+                    msgs, tokenize=False, add_generation_prompt=True
+                )
+                for msgs in messages_list
+            ]
 
             # Prepare images list
             images_list = [item["images"] for item in batch_data]
@@ -224,12 +242,16 @@ class EMUEncoderModelMixin:
 
             start_time = time.time()
             with torch.inference_mode():
-                outputs = self.model.generate(**model_inputs, generation_config=generation_config)
+                outputs = self.model.generate(
+                    **model_inputs, generation_config=generation_config
+                )
             end_time = time.time()
 
             # Trim input_ids from outputs (includes padding in batched mode)
             outputs_trimmed = outputs[:, model_inputs["input_ids"].shape[-1] :]
-            answers = self.processor.batch_decode(outputs_trimmed, skip_special_tokens=True)
+            answers = self.processor.batch_decode(
+                outputs_trimmed, skip_special_tokens=True
+            )
 
             # Calculate timing metrics for batch
             e2e_latency += end_time - start_time
@@ -237,35 +259,45 @@ class EMUEncoderModelMixin:
 
             # Decode with special tokens for debugging
             if self.debug_samples:
-                prompts_with_tokens = self.processor.batch_decode(model_inputs["input_ids"], skip_special_tokens=False)
-                answers_with_tokens = self.processor.batch_decode(outputs_trimmed, skip_special_tokens=False)
+                prompts_with_tokens = self.processor.batch_decode(
+                    model_inputs["input_ids"], skip_special_tokens=False
+                )
+                answers_with_tokens = self.processor.batch_decode(
+                    outputs_trimmed, skip_special_tokens=False
+                )
 
             for i, (ans, item, text) in enumerate(zip(answers, batch_data, texts)):
-                res.append(ans)
-                self.cache_hook.add_partial("generate_until", (item["context"], gen_kwargs), ans)
-                pbar.update(1)
+                chunk_idx = batch_to_chunk_idx[i]
+                chunk_results[chunk_idx] = ans
+                self.cache_hook.add_partial(
+                    "generate_until", (item["context"], gen_kwargs), ans
+                )
 
                 # Debug sample output
-                if self.debug_samples and self._debug_samples_printed < self.num_debug_samples and self.rank == 0:
+                if (
+                    self.debug_samples
+                    and self._debug_samples_printed < self.num_debug_samples
+                    and self.rank == 0
+                ):
                     self._debug_samples_printed += 1
-                    attn = model_inputs["attention_mask"][i]
-                    seq_len = attn.shape[0]
-                    n_pad = (attn == 0).sum().item()
-                    n_real = (attn == 1).sum().item()
-                    head = attn[:8].tolist()
-                    tail = attn[-8:].tolist()
-                    eval_logger.info("=" * 80)
-                    eval_logger.info(f"DEBUG SAMPLE {self._debug_samples_printed}/" f"{self.num_debug_samples}")
-                    eval_logger.info("=" * 80)
-                    eval_logger.info(f"PROMPT (clean): {text}")
-                    eval_logger.info(f"PROMPT (with tokens): {prompts_with_tokens[i]}")
-                    eval_logger.info(f"ATTENTION MASK: len={seq_len} pad={n_pad} real={n_real} head={head} tail={tail}")
-                    eval_logger.info(f"ANSWER (clean): {ans}")
-                    eval_logger.info(f"ANSWER (with tokens): {answers_with_tokens[i]}")
-                    eval_logger.info("=" * 80)
+                    log_debug_sample(
+                        sample_num=self._debug_samples_printed,
+                        total_samples=self.num_debug_samples,
+                        prompt_clean=text,
+                        prompt_with_tokens=prompts_with_tokens[i],
+                        answer_clean=ans,
+                        answer_with_tokens=answers_with_tokens[i],
+                        attention_mask=model_inputs["attention_mask"][i],
+                    )
 
                 eval_logger.debug(f"Question: {text}")
                 eval_logger.debug(f"Model Response: {ans}")
+
+            # Append all chunk results in correct order
+            for result in chunk_results:
+                if result is not None:
+                    res.append(result)
+                    pbar.update(1)
 
         # Reorder results
         res = re_ords.get_original(res)
@@ -274,10 +306,26 @@ class EMUEncoderModelMixin:
         # Print statistics
         label = self._model_label
         if self.rank == 0:
-            eval_logger.warning(f"{label} Statistics: Found " f"{text_only_count}/{total_samples} " f"text-only samples (no images). " f"Skipped: {skipped_text_only} " f"(skip_text_only={self.skip_text_only})")
-            eval_logger.warning(f"{label} Statistics: Found " f"{multi_image_count}/{total_samples} " f"multi-image samples (>1 image). " f"Skipped: {skipped_multi_image} " f"(skip_multi_image={self.skip_multi_image})")
+            eval_logger.warning(
+                f"{label} Statistics: Found "
+                f"{text_only_count}/{total_samples} "
+                f"text-only samples (no images). "
+                f"Skipped: {skipped_text_only} "
+                f"(skip_text_only={self.skip_text_only})"
+            )
+            eval_logger.warning(
+                f"{label} Statistics: Found "
+                f"{multi_image_count}/{total_samples} "
+                f"multi-image samples (>1 image). "
+                f"Skipped: {skipped_multi_image} "
+                f"(skip_multi_image={self.skip_multi_image})"
+            )
             if text_only_count == 0 and multi_image_count == 0:
-                eval_logger.info(f"{label} Statistics: All {total_samples} " "samples had exactly 1 image. " "No text-only or multi-image samples encountered.")
+                eval_logger.info(
+                    f"{label} Statistics: All {total_samples} "
+                    "samples had exactly 1 image. "
+                    "No text-only or multi-image samples encountered."
+                )
 
         # Log timing metrics
         avg_speed = total_tokens / e2e_latency if e2e_latency > 0 else 0
@@ -295,20 +343,24 @@ class EMUEncoderModelMixin:
 
     def loglikelihood(self, requests: List[Instance]) -> List[Tuple[float, bool]]:
         """Loglikelihood not implemented for EMU encoder models."""
-        raise NotImplementedError(f"Loglikelihood not implemented for {self._model_label}")
+        raise NotImplementedError(
+            f"Loglikelihood not implemented for {self._model_label}"
+        )
 
     def generate_until_multi_round(self, requests) -> List[str]:
         """Multi-round generation not implemented for EMU encoder models."""
-        raise NotImplementedError(f"Multi-round generation not implemented for {self._model_label}")
+        raise NotImplementedError(
+            f"Multi-round generation not implemented for {self._model_label}"
+        )
 
 
-class EMU3EncoderModel(EMUEncoderModelMixin, EMU3EncoderBaseModel):
+class EMU3ChatModel(EMUChatModelMixin, EMU3EncoderBaseModel):
     """Chat-specific EMU3 encoder model."""
 
     _model_label = "EMU3"
 
 
-class EMU3p5EncoderModel(EMUEncoderModelMixin, EMU3p5EncoderBaseModel):
+class EMU3p5ChatModel(EMUChatModelMixin, EMU3p5EncoderBaseModel):
     """Chat-specific EMU3.5 encoder model."""
 
     _model_label = "EMU3.5"
