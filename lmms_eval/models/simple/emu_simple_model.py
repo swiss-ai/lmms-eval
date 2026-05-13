@@ -6,6 +6,14 @@ base models without instruction tuning. Uses direct text prompts
 instead of chat templates.
 
 Concrete classes combine it with the appropriate base model.
+
+Generation-config precedence (highest -> lowest):
+1. Task gen_kwargs (YAML generation_kwargs or model_specific_generation_kwargs)
+   for max_new_tokens, temperature, do_sample, top_k, top_p, num_beams.
+2. Wrapper-supplied: pad/bos_token_id from tokenizer, use_cache from __init__.
+3. In-code fallback: max_new_tokens=1024 when no task value is provided.
+4. Everything else (eos_token_id, repetition_penalty, length_penalty, ...)
+   defers to model.generation_config shipped with the checkpoint.
 """
 
 import time
@@ -15,7 +23,6 @@ import torch
 from loguru import logger as eval_logger
 from PIL import Image
 from tqdm import tqdm
-from transformers.generation.configuration_utils import GenerationConfig
 
 from lmms_eval import utils
 from lmms_eval.api.instance import Instance
@@ -192,19 +199,24 @@ class EMUSimpleModelMixin:
             else:
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
-            # Create generation configuration
-            generation_config = GenerationConfig(
-                pad_token_id=self.tokenizer.pad_token_id,
-                bos_token_id=self.tokenizer.bos_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-                max_new_tokens=gen_kwargs.get("max_new_tokens", 1024),
-                temperature=gen_kwargs.get("temperature", 0.0),
-                do_sample=gen_kwargs.get("do_sample", False),
-                top_k=gen_kwargs.get("top_k", None),
-                top_p=gen_kwargs.get("top_p", None),
-                num_beams=gen_kwargs.get("num_beams", 1),
-                use_cache=self.use_cache,
-            )
+            # Build generate kwargs: defer to model.generation_config for any
+            # field the task didn't explicitly set (including eos_token_id).
+            generate_kwargs = {
+                "pad_token_id": self.tokenizer.pad_token_id,
+                "bos_token_id": self.tokenizer.bos_token_id,
+                "use_cache": self.use_cache,
+            }
+            for k in (
+                "max_new_tokens",
+                "temperature",
+                "do_sample",
+                "top_k",
+                "top_p",
+                "num_beams",
+            ):
+                if k in gen_kwargs:
+                    generate_kwargs[k] = gen_kwargs[k]
+            generate_kwargs.setdefault("max_new_tokens", 1024)
 
             model_inputs = {
                 "input_ids": inputs["input_ids"],
@@ -213,9 +225,7 @@ class EMUSimpleModelMixin:
 
             start_time = time.time()
             with torch.inference_mode():
-                outputs = self.model.generate(
-                    **model_inputs, generation_config=generation_config
-                )
+                outputs = self.model.generate(**model_inputs, **generate_kwargs)
             end_time = time.time()
 
             # Trim input_ids from outputs (includes padding in batched mode)
