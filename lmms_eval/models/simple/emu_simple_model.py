@@ -67,10 +67,7 @@ class EMUSimpleModelMixin:
     def generate_until(self, requests: List[Instance]) -> List[str]:
         """Generate responses for simple model with text prompts."""
         if self.rank == 0 and self.prompt_override is not None:
-            eval_logger.info(
-                f"{self._model_label} Simple: prompt_override="
-                f"{repr(self.prompt_override)}"
-            )
+            eval_logger.info(f"{self._model_label} Simple: prompt_override=" f"{repr(self.prompt_override)}")
 
         res = []
 
@@ -86,9 +83,7 @@ class EMUSimpleModelMixin:
             return -len(toks), x[0]
 
         # Group requests by generation_kwargs
-        re_ords = utils.Collator(
-            [req.args for req in requests], _collate, grouping=True
-        )
+        re_ords = utils.Collator([req.args for req in requests], _collate, grouping=True)
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
         pbar = tqdm(
             total=len(requests),
@@ -109,10 +104,7 @@ class EMUSimpleModelMixin:
             ) = zip(*chunk)
 
             # Extract visuals from dataset
-            visuals = [
-                doc_to_visual[i](self.task_dict[task[i]][split[i]][ids])
-                for i, ids in enumerate(doc_id)
-            ]
+            visuals = [doc_to_visual[i](self.task_dict[task[i]][split[i]][ids]) for i, ids in enumerate(doc_id)]
 
             gen_kwargs = all_gen_kwargs[0]
 
@@ -230,9 +222,7 @@ class EMUSimpleModelMixin:
 
             # Trim input_ids from outputs (includes padding in batched mode)
             outputs_trimmed = outputs[:, model_inputs["input_ids"].shape[-1] :]
-            text_outputs = self.processor.batch_decode(
-                outputs_trimmed, skip_special_tokens=True
-            )
+            text_outputs = self.processor.batch_decode(outputs_trimmed, skip_special_tokens=True)
 
             # Calculate timing metrics for batch
             e2e_latency += end_time - start_time
@@ -240,12 +230,8 @@ class EMUSimpleModelMixin:
 
             # Decode with special tokens for debugging
             if self.debug_samples:
-                prompts_with_tokens = self.processor.batch_decode(
-                    model_inputs["input_ids"], skip_special_tokens=False
-                )
-                answers_with_tokens = self.processor.batch_decode(
-                    outputs_trimmed, skip_special_tokens=False
-                )
+                prompts_with_tokens = self.processor.batch_decode(model_inputs["input_ids"], skip_special_tokens=False)
+                answers_with_tokens = self.processor.batch_decode(outputs_trimmed, skip_special_tokens=False)
 
             # Apply stopping sequences
             until = gen_kwargs.get("until", [])
@@ -258,16 +244,10 @@ class EMUSimpleModelMixin:
             for i, (ans, context) in enumerate(zip(text_outputs, batch_contexts)):
                 chunk_idx = batch_to_chunk_idx[i]
                 chunk_results[chunk_idx] = ans
-                self.cache_hook.add_partial(
-                    "generate_until", (context, gen_kwargs), ans
-                )
+                self.cache_hook.add_partial("generate_until", (context, gen_kwargs), ans)
 
                 # Debug output
-                if (
-                    self.debug_samples
-                    and self._debug_samples_printed < self.num_debug_samples
-                    and self.rank == 0
-                ):
+                if self.debug_samples and self._debug_samples_printed < self.num_debug_samples and self.rank == 0:
                     self._debug_samples_printed += 1
                     log_debug_sample(
                         sample_num=self._debug_samples_printed,
@@ -292,18 +272,8 @@ class EMUSimpleModelMixin:
         # Print statistics
         label = self._model_label
         if self.rank == 0:
-            eval_logger.warning(
-                f"{label} Simple Statistics: Found "
-                f"{text_only_count}/{total_samples} "
-                f"text-only samples (skipped: "
-                f"{text_only_count if self.skip_text_only else 0})"
-            )
-            eval_logger.warning(
-                f"{label} Simple Statistics: Found "
-                f"{multi_image_count}/{total_samples} "
-                f"multi-image samples (skipped: "
-                f"{multi_image_count if self.skip_multi_image else 0})"
-            )
+            eval_logger.warning(f"{label} Simple Statistics: Found " f"{text_only_count}/{total_samples} " f"text-only samples (skipped: " f"{text_only_count if self.skip_text_only else 0})")
+            eval_logger.warning(f"{label} Simple Statistics: Found " f"{multi_image_count}/{total_samples} " f"multi-image samples (skipped: " f"{multi_image_count if self.skip_multi_image else 0})")
 
         # Log timing metrics
         avg_speed = total_tokens / e2e_latency if e2e_latency > 0 else 0
@@ -321,15 +291,11 @@ class EMUSimpleModelMixin:
 
     def loglikelihood(self, requests: List[Instance]) -> List[Tuple[float, bool]]:
         """Loglikelihood not implemented for EMU simple models."""
-        raise NotImplementedError(
-            f"Loglikelihood not implemented for {self._model_label} simple"
-        )
+        raise NotImplementedError(f"Loglikelihood not implemented for {self._model_label} simple")
 
     def generate_until_multi_round(self, requests) -> List[str]:
         """Multi-round not implemented for simple models."""
-        raise NotImplementedError(
-            f"Multi-round not implemented for {self._model_label} simple"
-        )
+        raise NotImplementedError(f"Multi-round not implemented for {self._model_label} simple")
 
 
 class EMU3SimpleModel(EMUSimpleModelMixin, EMU3EncoderBaseModel):

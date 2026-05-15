@@ -142,9 +142,7 @@ def _get_available_extras(
         return set()
 
     if tomllib is None:
-        log.warning(
-            "tomllib/tomli not available, cannot parse pyproject.toml"
-        )
+        log.warning("tomllib/tomli not available, cannot parse pyproject.toml")
         return set()
 
     with open(toml_path, "rb") as f:
@@ -212,9 +210,7 @@ def _install_java() -> bool:
         return True
 
     log.info("Java not found, installing via install-jdk...")
-    if not _run_pip(
-        ["install", "-q", "install-jdk"], "install install-jdk"
-    ):
+    if not _run_pip(["install", "-q", "install-jdk"], "install install-jdk"):
         return False
 
     try:
@@ -230,8 +226,7 @@ def _install_java() -> bool:
                 log.info("Linked %s -> %s", java_bin, link)
             except PermissionError:
                 log.warning(
-                    "Cannot symlink java to %s (permission denied)."
-                    " Add %s/bin to PATH manually.",
+                    "Cannot symlink java to %s (permission denied)." " Add %s/bin to PATH manually.",
                     link,
                     jdk_dir,
                 )
@@ -264,9 +259,7 @@ def _install_spacy_model(name: str) -> bool:
     """Download a spacy model."""
     log.info("Installing spacy model %s...", name)
     try:
-        subprocess.check_call(
-            [sys.executable, "-m", "spacy", "download", name, "--quiet"]
-        )
+        subprocess.check_call([sys.executable, "-m", "spacy", "download", name, "--quiet"])
         log.info("spacy %s: ok", name)
         return True
     except subprocess.CalledProcessError:
@@ -292,9 +285,7 @@ def fixup_environment() -> None:
     _run_pip(["uninstall", "jupyterlab", "-y"], "uninstall jupyterlab")
 
 
-def install_model_deps(
-    model: str, eval_dir: str
-) -> tuple[list[str], list[str]]:
+def install_model_deps(model: str, eval_dir: str) -> tuple[list[str], list[str]]:
     """Install model-specific pyproject.toml extras.
 
     Always includes ``metrics``.
@@ -305,9 +296,7 @@ def install_model_deps(
     model_extras = MODEL_TO_EXTRAS.get(model, [])
     if model_extras:
         extras_to_install.extend(model_extras)
-        log.info(
-            "Model '%s' maps to extras: %s", model, model_extras
-        )
+        log.info("Model '%s' maps to extras: %s", model, model_extras)
     else:
         log.info("Model '%s' has no extra dependencies", model)
 
@@ -315,9 +304,7 @@ def install_model_deps(
     return _install_extras(extras_to_install, available, eval_dir)
 
 
-def install_task_deps(
-    tasks: str, eval_dir: str
-) -> tuple[list[str], list[str]]:
+def install_task_deps(tasks: str, eval_dir: str) -> tuple[list[str], list[str]]:
     """Install task-specific pyproject.toml extras.
 
     Strips task suffixes (_val, _test, etc.) and matches against
@@ -455,8 +442,7 @@ def install_all(
 
     log.info("Installation complete")
     log.info(
-        "  Base: %s | Model extras: %s | Task extras: %s"
-        " | Runtime: %s",
+        "  Base: %s | Model extras: %s | Task extras: %s" " | Runtime: %s",
         result.base_installed,
         result.model_extras,
         result.task_extras,
@@ -482,17 +468,13 @@ def _list_models() -> None:
     # Derive models without extras from registered models
     # (hard to auto-detect; list known ones explicitly)
     print()
-    print(
-        "Models with no extra deps (use base): llama_vision"
-    )
+    print("Models with no extra deps (use base): llama_vision")
 
 
 def main() -> None:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
-        description=(
-            "Install dependencies for lmms-eval models and tasks."
-        ),
+        description=("Install dependencies for lmms-eval models and tasks."),
     )
     parser.add_argument(
         "--model",
@@ -504,10 +486,7 @@ def main() -> None:
         "--tasks",
         type=str,
         default="",
-        help=(
-            "Comma-separated task names"
-            " (e.g. 'coco_cap,flickr30k')"
-        ),
+        help=("Comma-separated task names" " (e.g. 'coco_cap,flickr30k')"),
     )
     parser.add_argument(
         "--eval-dir",
@@ -544,9 +523,7 @@ def main() -> None:
         return
 
     if not args.model and not args.tasks:
-        parser.error(
-            "At least one of --model or --tasks is required"
-        )
+        parser.error("At least one of --model or --tasks is required")
 
     result = install_all(
         model=args.model,

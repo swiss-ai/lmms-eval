@@ -120,9 +120,7 @@ class EMU3_5(EMU3p5EncoderBaseModel):
     def _load_llm(self, model_path: str, **kwargs) -> Emu3ForCausalLM:
         """Load EMU3.5 causal language model with Emu3Config."""
         # Ensure main model weights are available locally
-        model_path = ensure_local_weights(
-            model_path, "BAAI/Emu3.5", accelerator=self.accelerator
-        )
+        model_path = ensure_local_weights(model_path, "BAAI/Emu3.5", accelerator=self.accelerator)
 
         # Extract kwargs for model loading
         trust_remote_code = kwargs.pop("trust_remote_code", self._trust_remote_code)
@@ -169,22 +167,15 @@ class EMU3_5(EMU3p5EncoderBaseModel):
             grouping=True,
         )
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
-        pbar = tqdm(
-            total=len(requests), disable=(self.rank != 0), desc="Model Responding"
-        )
+        pbar = tqdm(total=len(requests), disable=(self.rank != 0), desc="Model Responding")
 
         # iterate over batches
         for chunk in chunks:
             ctx, doc_to_messages, all_gen_kwargs, doc_id, task, split = zip(*chunk)
             # Get chat messages
-            chat_messages = [
-                doc_to_messages[idx](self.task_dict[task][split][ids])
-                for idx, (ids, task, split) in enumerate(zip(doc_id, task, split))
-            ]
+            chat_messages = [doc_to_messages[idx](self.task_dict[task][split][ids]) for idx, (ids, task, split) in enumerate(zip(doc_id, task, split))]
             # Convert to ChatMessages protocol
-            chat_messages: List[ChatMessages] = [
-                ChatMessages(**{"messages": message}) for message in chat_messages
-            ]
+            chat_messages: List[ChatMessages] = [ChatMessages(**{"messages": message}) for message in chat_messages]
 
             # Build per-sample chat-templated prompts with image placeholders.
             # encode_and_inject_vision_tokens replaces placeholders with
@@ -316,32 +307,20 @@ class EMU3_5(EMU3p5EncoderBaseModel):
 
             # Trim input_ids from outputs
             outputs_trimmed = outputs[:, model_inputs["input_ids"].shape[-1] :]
-            answers = self.processor.batch_decode(
-                outputs_trimmed, skip_special_tokens=True
-            )
+            answers = self.processor.batch_decode(outputs_trimmed, skip_special_tokens=True)
 
             # Decode with special tokens for debugging
             if self.debug_samples:
-                prompts_with_tokens = self.processor.batch_decode(
-                    model_inputs["input_ids"], skip_special_tokens=False
-                )
-                answers_with_tokens = self.processor.batch_decode(
-                    outputs_trimmed, skip_special_tokens=False
-                )
+                prompts_with_tokens = self.processor.batch_decode(model_inputs["input_ids"], skip_special_tokens=False)
+                answers_with_tokens = self.processor.batch_decode(outputs_trimmed, skip_special_tokens=False)
 
             for i, (ans, item, text) in enumerate(zip(answers, sample_data, texts)):
                 chunk_idx = batch_to_chunk_idx[i]
                 chunk_results[chunk_idx] = ans
-                self.cache_hook.add_partial(
-                    "generate_until", (item["context"], gen_kwargs), ans
-                )
+                self.cache_hook.add_partial("generate_until", (item["context"], gen_kwargs), ans)
 
                 # Debug sample output (only on rank 0 to avoid duplicates)
-                if (
-                    self.debug_samples
-                    and self._debug_samples_printed < self.num_debug_samples
-                    and self.rank == 0
-                ):
+                if self.debug_samples and self._debug_samples_printed < self.num_debug_samples and self.rank == 0:
                     self._debug_samples_printed += 1
                     log_debug_sample(
                         sample_num=self._debug_samples_printed,
@@ -368,23 +347,10 @@ class EMU3_5(EMU3p5EncoderBaseModel):
 
         # Print statistics at the end (warning mode)
         if self.rank == 0:  # Only print from main process
-            eval_logger.warning(
-                f"EMU3.5 Statistics: Found {text_only_count}/{total_samples} "
-                f"text-only samples (no images). "
-                f"Skipped: {skipped_text_only} "
-                f"(skip_text_only={self.skip_text_only})"
-            )
-            eval_logger.warning(
-                f"EMU3.5 Statistics: Found {multi_image_count}/{total_samples} "
-                f"multi-image samples (>1 image). "
-                f"Skipped: {skipped_multi_image} "
-                f"(skip_multi_image={self.skip_multi_image})"
-            )
+            eval_logger.warning(f"EMU3.5 Statistics: Found {text_only_count}/{total_samples} " f"text-only samples (no images). " f"Skipped: {skipped_text_only} " f"(skip_text_only={self.skip_text_only})")
+            eval_logger.warning(f"EMU3.5 Statistics: Found {multi_image_count}/{total_samples} " f"multi-image samples (>1 image). " f"Skipped: {skipped_multi_image} " f"(skip_multi_image={self.skip_multi_image})")
             if text_only_count == 0 and multi_image_count == 0:
-                eval_logger.info(
-                    f"EMU3.5 Statistics: All {total_samples} samples had exactly 1 "
-                    "image. No text-only or multi-image samples encountered."
-                )
+                eval_logger.info(f"EMU3.5 Statistics: All {total_samples} samples had exactly 1 " "image. No text-only or multi-image samples encountered.")
 
         return res
 

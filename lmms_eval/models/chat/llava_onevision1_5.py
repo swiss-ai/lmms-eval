@@ -27,9 +27,7 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
     is_simple = False
 
     def generate_until(self, requests: List[Instance]) -> List[str]:
-        assert process_vision_info is not None, (
-            "qwen_vl_utils is required. Please install it via `pip install qwen-vl-utils`"
-        )
+        assert process_vision_info is not None, "qwen_vl_utils is required. Please install it via `pip install qwen-vl-utils`"
 
         res = []
 
@@ -43,9 +41,7 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
             grouping=True,
         )
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
-        pbar = tqdm(
-            total=len(requests), disable=(self.rank != 0), desc="Model Responding"
-        )
+        pbar = tqdm(total=len(requests), disable=(self.rank != 0), desc="Model Responding")
 
         e2e_latency = 0.0
         total_tokens = 0
@@ -58,12 +54,8 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
             task = task[0]
             split = split[0]
 
-            raw_messages_list = [
-                doc_to_messages[0](self.task_dict[task][split][ids]) for ids in doc_id
-            ]
-            chat_messages_list: List[ChatMessages] = [
-                ChatMessages(**{"messages": m}) for m in raw_messages_list
-            ]
+            raw_messages_list = [doc_to_messages[0](self.task_dict[task][split][ids]) for ids in doc_id]
+            chat_messages_list: List[ChatMessages] = [ChatMessages(**{"messages": m}) for m in raw_messages_list]
 
             # Prepare video processing kwargs
             video_kwargs = {
@@ -77,17 +69,9 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
                 video_kwargs["nframes"] = self.max_num_frames
 
             # Build HF messages and apply chat template
-            hf_messages_list = [
-                cm.to_hf_messages(video_kwargs=video_kwargs)
-                for cm in chat_messages_list
-            ]
+            hf_messages_list = [cm.to_hf_messages(video_kwargs=video_kwargs) for cm in chat_messages_list]
 
-            texts = [
-                self.processor.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
-                )
-                for messages in hf_messages_list
-            ]
+            texts = [self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True) for messages in hf_messages_list]
 
             if self.rank == 0 and doc_id[0] % 100 == 0:
                 eval_logger.debug(f"Prompt for doc ID {doc_id[0]}:\n\n{texts[0]}\n")
@@ -96,15 +80,9 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
             image_inputs, video_inputs = process_vision_info(hf_messages_list)
 
             # Sample video frames to max_num_frames (simple implementation handles only first element)
-            if (
-                video_inputs is not None
-                and len(video_inputs) > 0
-                and isinstance(video_inputs[0], torch.Tensor)
-            ):
+            if video_inputs is not None and len(video_inputs) > 0 and isinstance(video_inputs[0], torch.Tensor):
                 total_frames = video_inputs[0].shape[0]
-                indices = np.linspace(
-                    0, total_frames - 1, self.max_num_frames, dtype=int
-                )
+                indices = np.linspace(0, total_frames - 1, self.max_num_frames, dtype=int)
                 if total_frames - 1 not in indices:
                     indices = np.append(indices, total_frames - 1)
                 video_inputs[0] = video_inputs[0][indices]
@@ -131,17 +109,13 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
             gen_kwargs.setdefault("num_beams", 1)
 
             pad_token_id = self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
-            do_sample = bool(
-                gen_kwargs.get("temperature", 0) and gen_kwargs["temperature"] > 0
-            )
+            do_sample = bool(gen_kwargs.get("temperature", 0) and gen_kwargs["temperature"] > 0)
 
             # Filter out keys not supported by model.generate()
             # LLaVA-OneVision-1.5 uses Qwen2_5_VLProcessor which produces second_per_grid_ts,
             # but the model's forward method does not accept this parameter
             unsupported_keys = ["second_per_grid_ts"]
-            filtered_inputs = {
-                k: v for k, v in inputs.items() if k not in unsupported_keys
-            }
+            filtered_inputs = {k: v for k, v in inputs.items() if k not in unsupported_keys}
 
             gen_args = {
                 **filtered_inputs,
@@ -155,9 +129,7 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
                 gen_args.update(
                     do_sample=True,
                     temperature=float(gen_kwargs.get("temperature", 1.0)),
-                    top_p=float(gen_kwargs.get("top_p", 1.0))
-                    if gen_kwargs.get("top_p") is not None
-                    else None,
+                    top_p=float(gen_kwargs.get("top_p", 1.0)) if gen_kwargs.get("top_p") is not None else None,
                 )
 
             try:
@@ -177,9 +149,7 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
             text_outputs = self.tokenizer.batch_decode(cont, skip_special_tokens=True)
 
             if self.debug_samples:
-                text_outputs_with_tokens = self.tokenizer.batch_decode(
-                    cont, skip_special_tokens=False
-                )
+                text_outputs_with_tokens = self.tokenizer.batch_decode(cont, skip_special_tokens=False)
                 prompts_with_tokens = self.processor.batch_decode(
                     inputs["input_ids"],
                     skip_special_tokens=False,
@@ -188,15 +158,9 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
 
             for i, text_output in enumerate(text_outputs):
                 res.append(text_output)
-                self.cache_hook.add_partial(
-                    "generate_until", (texts[0], gen_kwargs), text_output
-                )
+                self.cache_hook.add_partial("generate_until", (texts[0], gen_kwargs), text_output)
 
-                if (
-                    self.debug_samples
-                    and self._debug_samples_printed < self.num_debug_samples
-                    and self.rank == 0
-                ):
+                if self.debug_samples and self._debug_samples_printed < self.num_debug_samples and self.rank == 0:
                     self._debug_samples_printed += 1
                     log_debug_sample(
                         sample_num=self._debug_samples_printed,

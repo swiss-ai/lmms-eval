@@ -40,10 +40,7 @@ def log_debug_sample(
         n_real = (attention_mask == 1).sum().item()
         head = attention_mask[:8].tolist()
         tail = attention_mask[-8:].tolist()
-        eval_logger.info(
-            f"ATTENTION MASK: len={seq_len} pad={n_pad} "
-            f"real={n_real} head={head} tail={tail}"
-        )
+        eval_logger.info(f"ATTENTION MASK: len={seq_len} pad={n_pad} " f"real={n_real} head={head} tail={tail}")
     eval_logger.info(f"ANSWER (clean): {answer_clean}")
     eval_logger.info(f"ANSWER (with tokens): {answer_with_tokens}")
     eval_logger.info("=" * 80)
