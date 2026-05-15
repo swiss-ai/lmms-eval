@@ -141,10 +141,11 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
 
                 # Remove prompt tokens
                 cont = cont[:, inputs["input_ids"].shape[-1] :]
-                total_tokens += cont.shape[-1] if cont.ndim > 1 else int(cont.shape[-1])
+                total_tokens += sum(len(ids) for ids in cont)
             except Exception as e:
                 eval_logger.error(f"Error {e} in generating")
-                cont = torch.zeros((1, 0), dtype=torch.long, device=self.device)
+                batch_size = inputs["input_ids"].shape[0]
+                cont = torch.zeros((batch_size, 0), dtype=torch.long, device=self.device)
 
             text_outputs = self.tokenizer.batch_decode(cont, skip_special_tokens=True)
 
@@ -158,7 +159,7 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
 
             for i, text_output in enumerate(text_outputs):
                 res.append(text_output)
-                self.cache_hook.add_partial("generate_until", (texts[0], gen_kwargs), text_output)
+                self.cache_hook.add_partial("generate_until", (texts[i], gen_kwargs), text_output)
 
                 if self.debug_samples and self._debug_samples_printed < self.num_debug_samples and self.rank == 0:
                     self._debug_samples_printed += 1
