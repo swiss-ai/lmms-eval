@@ -63,9 +63,13 @@ class EMU3EncoderBaseModel(lmms):
         skip_multi_image: bool = True,
         debug_samples: bool = False,
         num_debug_samples: int = 5,
+        prompt_override: Optional[str] = None,
         **kwargs,
     ):
         super().__init__()
+
+        # Prompt override for simple (base) models
+        self.prompt_override = prompt_override
 
         # Setup accelerator for distributed training
         accelerator = Accelerator()

@@ -1,7 +1,7 @@
 """
 Unified chat model mixin for EMU encoder models with chat template support.
 
-EMUEncoderModelMixin provides the shared generate_until() logic.
+EMUChatModelMixin provides the shared generate_until() logic.
 Concrete classes combine it with the appropriate base model.
 
 Inheriting models overwrite:
@@ -9,6 +9,15 @@ Inheriting models overwrite:
 - _load_tokenizer:  Load the text tokenizer
 - _chat_transform:  Optional: Transform HF messages before chat template
 - image_placeholder: Property defining image placeholder token
+
+Generation-config precedence (highest -> lowest):
+1. Task gen_kwargs (YAML generation_kwargs or model_specific_generation_kwargs)
+   for max_new_tokens, temperature, do_sample, top_k, top_p, num_beams.
+2. Wrapper-supplied: pad/bos_token_id from tokenizer, use_cache from __init__,
+   eos_token_id from generation_eos_token_id (tokenizer EOS + sft_eot_token).
+3. In-code fallback: max_new_tokens=1024 when no task value is provided.
+4. Everything else (repetition_penalty, length_penalty, min_new_tokens, ...)
+   defers to model.generation_config shipped with the checkpoint.
 """
 
 import time
@@ -18,17 +27,17 @@ import torch
 from loguru import logger as eval_logger
 from PIL import Image
 from tqdm import tqdm
-from transformers.generation.configuration_utils import GenerationConfig
 
 from lmms_eval import utils
 from lmms_eval.api.instance import Instance
 from lmms_eval.models.emu3_encoder_base_model import EMU3EncoderBaseModel
 from lmms_eval.models.emu3p5_encoder_base_model import EMU3p5EncoderBaseModel
+from lmms_eval.models.model_utils.debug_utils import log_debug_sample
 from lmms_eval.models.model_utils.gen_metrics import log_metrics
 from lmms_eval.protocol import ChatMessages
 
 
-class EMUEncoderModelMixin:
+class EMUChatModelMixin:
     """
     Mixin providing chat-mode generate_until() for EMU encoder models.
 
@@ -91,9 +100,8 @@ class EMUEncoderModelMixin:
             grouping=True,
         )
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
-        num_iters = len(requests) // self.batch_size if len(requests) % self.batch_size == 0 else len(requests) // self.batch_size + 1
         pbar = tqdm(
-            total=num_iters,
+            total=len(requests),
             disable=(self.rank != 0),
             desc="Model Responding",
         )
@@ -117,6 +125,8 @@ class EMUEncoderModelMixin:
 
             # Extract media and prepare batch
             batch_data = []
+            chunk_results = [None] * len(chat_messages)
+            batch_to_chunk_idx = []
 
             for idx, chat_message in enumerate(chat_messages):
                 total_samples += 1
@@ -129,27 +139,26 @@ class EMUEncoderModelMixin:
                     text_only_count += 1
                     if self.skip_text_only:
                         skipped_text_only += 1
-                    res.append("")
-                    self.cache_hook.add_partial(
-                        "generate_until",
-                        (ctx[idx], all_gen_kwargs[idx]),
-                        "",
-                    )
-                    pbar.update(1)
-                    continue
+                        chunk_results[idx] = ""
+                        self.cache_hook.add_partial(
+                            "generate_until",
+                            (ctx[idx], all_gen_kwargs[idx]),
+                            "",
+                        )
+                        continue
+                    visual = []
 
                 # Check for multi-image samples
                 if len(visual) > 1:
                     multi_image_count += 1
                     if self.skip_multi_image:
                         skipped_multi_image += 1
-                        res.append("")
+                        chunk_results[idx] = ""
                         self.cache_hook.add_partial(
                             "generate_until",
                             (ctx[idx], all_gen_kwargs[idx]),
                             "",
                         )
-                        pbar.update(1)
                         continue
                     # else: process all images (multi-image supported)
 
@@ -166,6 +175,7 @@ class EMUEncoderModelMixin:
                         img = Image.open(img)
                     pil_images.append(img)
 
+                batch_to_chunk_idx.append(idx)
                 batch_data.append(
                     {
                         "messages": transformed_messages,
@@ -176,6 +186,11 @@ class EMUEncoderModelMixin:
 
             # Skip if all samples filtered
             if len(batch_data) == 0:
+                # Append skipped results in chunk order
+                for result in chunk_results:
+                    if result is not None:
+                        res.append(result)
+                        pbar.update(1)
                 continue
 
             gen_kwargs = all_gen_kwargs[0]
@@ -202,19 +217,27 @@ class EMUEncoderModelMixin:
             else:
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
-            # Create generation configuration
-            generation_config = GenerationConfig(
-                pad_token_id=self.tokenizer.pad_token_id,
-                bos_token_id=self.tokenizer.bos_token_id,
-                eos_token_id=self.generation_eos_token_id,
-                max_new_tokens=gen_kwargs.get("max_new_tokens", 1024),
-                temperature=gen_kwargs.get("temperature", 0.0),
-                do_sample=gen_kwargs.get("do_sample", False),
-                top_k=gen_kwargs.get("top_k", None),
-                top_p=gen_kwargs.get("top_p", None),
-                num_beams=gen_kwargs.get("num_beams", 1),
-                use_cache=self.use_cache,
-            )
+            # Build generate kwargs: defer to model.generation_config for any
+            # field the task didn't explicitly set. Override eos_token_id here
+            # because wrappers extend it with sft_eot_token (not in the model's
+            # shipped generation_config).
+            generate_kwargs = {
+                "pad_token_id": self.tokenizer.pad_token_id,
+                "bos_token_id": self.tokenizer.bos_token_id,
+                "eos_token_id": self.generation_eos_token_id,
+                "use_cache": self.use_cache,
+            }
+            for k in (
+                "max_new_tokens",
+                "temperature",
+                "do_sample",
+                "top_k",
+                "top_p",
+                "num_beams",
+            ):
+                if k in gen_kwargs:
+                    generate_kwargs[k] = gen_kwargs[k]
+            generate_kwargs.setdefault("max_new_tokens", 1024)
 
             # Filter inputs to only include keys accepted by model.generate()
             model_inputs = {
@@ -224,7 +247,7 @@ class EMUEncoderModelMixin:
 
             start_time = time.time()
             with torch.inference_mode():
-                outputs = self.model.generate(**model_inputs, generation_config=generation_config)
+                outputs = self.model.generate(**model_inputs, **generate_kwargs)
             end_time = time.time()
 
             # Trim input_ids from outputs (includes padding in batched mode)
@@ -241,31 +264,31 @@ class EMUEncoderModelMixin:
                 answers_with_tokens = self.processor.batch_decode(outputs_trimmed, skip_special_tokens=False)
 
             for i, (ans, item, text) in enumerate(zip(answers, batch_data, texts)):
-                res.append(ans)
+                chunk_idx = batch_to_chunk_idx[i]
+                chunk_results[chunk_idx] = ans
                 self.cache_hook.add_partial("generate_until", (item["context"], gen_kwargs), ans)
-                pbar.update(1)
 
                 # Debug sample output
                 if self.debug_samples and self._debug_samples_printed < self.num_debug_samples and self.rank == 0:
                     self._debug_samples_printed += 1
-                    attn = model_inputs["attention_mask"][i]
-                    seq_len = attn.shape[0]
-                    n_pad = (attn == 0).sum().item()
-                    n_real = (attn == 1).sum().item()
-                    head = attn[:8].tolist()
-                    tail = attn[-8:].tolist()
-                    eval_logger.info("=" * 80)
-                    eval_logger.info(f"DEBUG SAMPLE {self._debug_samples_printed}/" f"{self.num_debug_samples}")
-                    eval_logger.info("=" * 80)
-                    eval_logger.info(f"PROMPT (clean): {text}")
-                    eval_logger.info(f"PROMPT (with tokens): {prompts_with_tokens[i]}")
-                    eval_logger.info(f"ATTENTION MASK: len={seq_len} pad={n_pad} real={n_real} head={head} tail={tail}")
-                    eval_logger.info(f"ANSWER (clean): {ans}")
-                    eval_logger.info(f"ANSWER (with tokens): {answers_with_tokens[i]}")
-                    eval_logger.info("=" * 80)
+                    log_debug_sample(
+                        sample_num=self._debug_samples_printed,
+                        total_samples=self.num_debug_samples,
+                        prompt_clean=text,
+                        prompt_with_tokens=prompts_with_tokens[i],
+                        answer_clean=ans,
+                        answer_with_tokens=answers_with_tokens[i],
+                        attention_mask=model_inputs["attention_mask"][i],
+                    )
 
                 eval_logger.debug(f"Question: {text}")
                 eval_logger.debug(f"Model Response: {ans}")
+
+            # Append all chunk results in correct order
+            for result in chunk_results:
+                if result is not None:
+                    res.append(result)
+                    pbar.update(1)
 
         # Reorder results
         res = re_ords.get_original(res)
@@ -302,13 +325,13 @@ class EMUEncoderModelMixin:
         raise NotImplementedError(f"Multi-round generation not implemented for {self._model_label}")
 
 
-class EMU3EncoderModel(EMUEncoderModelMixin, EMU3EncoderBaseModel):
+class EMU3ChatModel(EMUChatModelMixin, EMU3EncoderBaseModel):
     """Chat-specific EMU3 encoder model."""
 
     _model_label = "EMU3"
 
 
-class EMU3p5EncoderModel(EMUEncoderModelMixin, EMU3p5EncoderBaseModel):
+class EMU3p5ChatModel(EMUChatModelMixin, EMU3p5EncoderBaseModel):
     """Chat-specific EMU3.5 encoder model."""
 
     _model_label = "EMU3.5"

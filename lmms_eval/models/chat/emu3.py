@@ -1,10 +1,21 @@
 """
 EMU3 Chat Model using EMU3EncoderBaseModel.
 
-This implementation focuses on understanding tasks using direct mode="U" processing.
-Text only samples are skipped or an empty answer is added (arg: skip_text_only)
-If sample has multiple images: Either skipped or choose 1st image only (arg: skip_multi_image)
--> EMU3 only supports combination of exactly one img for 1 txt
+Builds the processor's chat template manually and uses
+encode_and_inject_vision_tokens to handle batches that may mix image and
+text-only samples (text-only samples produce a prompt without an image
+placeholder; the method skips image encoding for them).
+
+Text-only samples can be skipped via skip_text_only; multi-image samples
+are either skipped (skip_multi_image) or truncated to the first image.
+
+Generation-config precedence (highest -> lowest):
+1. Task gen_kwargs (YAML generation_kwargs or model_specific_generation_kwargs)
+   for max_new_tokens, temperature, do_sample, top_k, top_p, num_beams.
+2. Wrapper-supplied: pad/bos_token_id from tokenizer, use_cache from __init__.
+3. In-code fallback: max_new_tokens=1024 when no task value is provided.
+4. Everything else (eos_token_id, repetition_penalty, length_penalty, ...)
+   defers to model.generation_config shipped with the checkpoint.
 """
 
 from typing import List, Optional, Tuple, Union
@@ -14,12 +25,12 @@ from loguru import logger as eval_logger
 from PIL import Image
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from transformers.generation.configuration_utils import GenerationConfig
 
 from lmms_eval import utils
 from lmms_eval.api.instance import Instance
 from lmms_eval.api.registry import register_model
 from lmms_eval.models.emu3_encoder_base_model import EMU3EncoderBaseModel
+from lmms_eval.models.model_utils.debug_utils import log_debug_sample
 from lmms_eval.protocol import ChatMessages
 
 
@@ -28,7 +39,6 @@ class EMU3(EMU3EncoderBaseModel):
     """
     EMU3 Chat Model, wrapper for https://github.com/baaivision/Emu3
 
-    Uses direct mode="U" processing without chat templates.
     Inherits infrastructure from EMU3EncoderBaseModel.
     """
 
@@ -96,11 +106,12 @@ class EMU3(EMU3EncoderBaseModel):
 
     @property
     def image_placeholder(self) -> str:
-        """Image placeholder token (not used in direct mode="U" processing)."""
+        """Sentinel string injected into the chat template; replaced with
+        wrapped vision tokens by encode_and_inject_vision_tokens."""
         return "<|image|>"
 
     def generate_until(self, requests: List[Instance]) -> List[str]:
-        """Generate responses using direct mode="U" processing."""
+        """Generate responses using the processor's chat template + vision-token injection."""
         res = []
 
         # Initialize statistics counters
@@ -122,8 +133,7 @@ class EMU3(EMU3EncoderBaseModel):
             grouping=True,
         )
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
-        num_iters = len(requests) // self.batch_size if len(requests) % self.batch_size == 0 else len(requests) // self.batch_size + 1
-        pbar = tqdm(total=num_iters, disable=(self.rank != 0), desc="Model Responding")
+        pbar = tqdm(total=len(requests), disable=(self.rank != 0), desc="Model Responding")
 
         # iterate through batches (1 chunk = 1 batch)
         for chunk in chunks:
@@ -132,11 +142,18 @@ class EMU3(EMU3EncoderBaseModel):
             chat_messages = [doc_to_messages[idx](self.task_dict[task][split][ids]) for idx, (ids, task, split) in enumerate(zip(doc_id, task, split))]
             chat_messages: List[ChatMessages] = [ChatMessages(**{"messages": message}) for message in chat_messages]
 
-            # Extract media and text per message
-            # EMU3 requires len(images) == len(texts) in understanding mode
+            # Build per-sample chat-templated prompts with image placeholders.
+            # encode_and_inject_vision_tokens replaces placeholders with
+            # wrapped vision tokens and naturally handles text-only samples
+            # (zero placeholders + empty image list).
             batch_data = []
+            chunk_results = [None] * len(chat_messages)
+            batch_to_chunk_idx = []
 
-            # Iterate through samples in a batch to prepare input to model
+            chat_template = self.processor.chat_template
+            bos_token = self.processor.bos_token
+            image_placeholder = self.image_placeholder
+
             for idx, chat_message in enumerate(chat_messages):
                 total_samples += 1
 
@@ -148,61 +165,72 @@ class EMU3(EMU3EncoderBaseModel):
                         if content.type == "text":
                             text += content.text
 
-                # Check for text-only samples (no images)
+                # Text-only samples
                 if not visual or len(visual) == 0:
                     text_only_count += 1
                     if self.skip_text_only:
                         skipped_text_only += 1
-                        # Add empty placeholder answer for this skipped sample
-                        res.append("")
-                        self.cache_hook.add_partial("generate_until", (ctx[idx], all_gen_kwargs[idx]), "")
-                        pbar.update(1)
+                        chunk_results[idx] = ""
+                        self.cache_hook.add_partial(
+                            "generate_until",
+                            (ctx[idx], all_gen_kwargs[idx]),
+                            "",
+                        )
                         continue
-                    else:
-                        # EMU3 requires images - add empty answer
-                        res.append("")
-                        self.cache_hook.add_partial("generate_until", (ctx[idx], all_gen_kwargs[idx]), "")
-                        pbar.update(1)
-                        continue
+                    visual = []
 
-                # Check for multi-image samples (more than 1 image)
+                # Multi-image samples
                 if len(visual) > 1:
                     multi_image_count += 1
                     if self.skip_multi_image:
                         skipped_multi_image += 1
-                        # Add empty placeholder answer for this skipped sample
-                        res.append("")
-                        self.cache_hook.add_partial("generate_until", (ctx[idx], all_gen_kwargs[idx]), "")
-                        pbar.update(1)
+                        chunk_results[idx] = ""
+                        self.cache_hook.add_partial(
+                            "generate_until",
+                            (ctx[idx], all_gen_kwargs[idx]),
+                            "",
+                        )
                         continue
-                    else:
-                        # If not skipping, take only the first image
-                        img = visual[0]
-                        if isinstance(img, str):
-                            img = Image.open(img)
-                        batch_data.append({"text": text, "image": img, "context": ctx[idx]})
-                else:
-                    # Exactly 1 image - process normally
-                    img = visual[0]
+                    # If not skipping, keep only the first image
+                    visual = visual[:1]
+
+                # Load images and build the per-sample prompt
+                images_for_sample = []
+                for img in visual:
                     if isinstance(img, str):
                         img = Image.open(img)
-                    batch_data.append({"text": text, "image": img, "context": ctx[idx]})
+                    images_for_sample.append(img)
+
+                image_prompt = image_placeholder if images_for_sample else ""
+                prompt = bos_token + chat_template.format(image_prompt=image_prompt, text_prompt=text)
+
+                batch_to_chunk_idx.append(idx)
+                batch_data.append(
+                    {
+                        "text": prompt,
+                        "images": images_for_sample,
+                        "context": ctx[idx],
+                    }
+                )
 
             # If all samples in batch were skipped, continue to next batch
             if len(batch_data) == 0:
+                # Append skipped results in chunk order
+                for result in chunk_results:
+                    if result is not None:
+                        res.append(result)
+                        pbar.update(1)
                 continue
 
             gen_kwargs = all_gen_kwargs[0]
 
-            # Prepare inputs for EMU3 processor
             texts = [item["text"] for item in batch_data]
-            processed_images = [item["image"] for item in batch_data]
+            images_list = [item["images"] for item in batch_data]
 
-            # Process inputs for EMU3
-            inputs = self.processor(
-                text=texts,
-                image=processed_images,
-                mode="U",  # Understanding mode
+            inputs = self.processor.encode_and_inject_vision_tokens(
+                texts=texts,
+                images=images_list,
+                image_placeholder=image_placeholder,
                 return_tensors="pt",
                 padding="longest",
             )
@@ -213,19 +241,24 @@ class EMU3(EMU3EncoderBaseModel):
             else:
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
-            # Create generation configuration
-            generation_config = GenerationConfig(
-                pad_token_id=self.tokenizer.pad_token_id,
-                bos_token_id=self.tokenizer.bos_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-                max_new_tokens=gen_kwargs.get("max_new_tokens", 1024),
-                temperature=gen_kwargs.get("temperature", 0.0),
-                do_sample=gen_kwargs.get("do_sample", False),
-                top_k=gen_kwargs.get("top_k", None),
-                top_p=gen_kwargs.get("top_p", None),
-                num_beams=gen_kwargs.get("num_beams", 1),
-                use_cache=self.use_cache,
-            )
+            # Build generate kwargs: defer to model.generation_config for any
+            # field the task didn't explicitly set (including eos_token_id).
+            generate_kwargs = {
+                "pad_token_id": self.tokenizer.pad_token_id,
+                "bos_token_id": self.tokenizer.bos_token_id,
+                "use_cache": self.use_cache,
+            }
+            for k in (
+                "max_new_tokens",
+                "temperature",
+                "do_sample",
+                "top_k",
+                "top_p",
+                "num_beams",
+            ):
+                if k in gen_kwargs:
+                    generate_kwargs[k] = gen_kwargs[k]
+            generate_kwargs.setdefault("max_new_tokens", 1024)
 
             # Filter inputs to only include keys accepted by model.generate()
             model_inputs = {
@@ -234,7 +267,7 @@ class EMU3(EMU3EncoderBaseModel):
             }
 
             with torch.inference_mode():
-                outputs = self.model.generate(**model_inputs, generation_config=generation_config)
+                outputs = self.model.generate(**model_inputs, **generate_kwargs)
 
             # Trim input_ids from outputs
             outputs_trimmed = outputs[:, model_inputs["input_ids"].shape[-1] :]
@@ -246,24 +279,31 @@ class EMU3(EMU3EncoderBaseModel):
                 answers_with_tokens = self.processor.batch_decode(outputs_trimmed, skip_special_tokens=False)
 
             for i, (ans, item, text) in enumerate(zip(answers, batch_data, texts)):
-                res.append(ans)
+                chunk_idx = batch_to_chunk_idx[i]
+                chunk_results[chunk_idx] = ans
                 self.cache_hook.add_partial("generate_until", (item["context"], gen_kwargs), ans)
-                pbar.update(1)
 
                 # Debug sample output (only on rank 0 to avoid duplicates)
                 if self.debug_samples and self._debug_samples_printed < self.num_debug_samples and self.rank == 0:
                     self._debug_samples_printed += 1
-                    eval_logger.info("=" * 80)
-                    eval_logger.info(f"DEBUG SAMPLE {self._debug_samples_printed}/" f"{self.num_debug_samples}")
-                    eval_logger.info("=" * 80)
-                    eval_logger.info(f"PROMPT (clean): {text}")
-                    eval_logger.info(f"PROMPT (with tokens): {prompts_with_tokens[i]}")
-                    eval_logger.info(f"ANSWER (clean): {ans}")
-                    eval_logger.info(f"ANSWER (with tokens): {answers_with_tokens[i]}")
-                    eval_logger.info("=" * 80)
+                    log_debug_sample(
+                        sample_num=self._debug_samples_printed,
+                        total_samples=self.num_debug_samples,
+                        prompt_clean=text,
+                        prompt_with_tokens=prompts_with_tokens[i],
+                        answer_clean=ans,
+                        answer_with_tokens=answers_with_tokens[i],
+                        attention_mask=model_inputs["attention_mask"][i],
+                    )
 
                 eval_logger.debug(f"Question: {text}")
                 eval_logger.debug(f"Model Response: {ans}")
+
+            # Append all chunk results in correct order
+            for result in chunk_results:
+                if result is not None:
+                    res.append(result)
+                    pbar.update(1)
 
         # Reorder results back to original unsorted form
         res = re_ords.get_original(res)

@@ -1,7 +1,7 @@
 import re
+import time
 from typing import List, Optional, Tuple, Union
 
-import decord
 import numpy as np
 import torch
 from accelerate import Accelerator, DistributedType
@@ -15,6 +15,13 @@ from lmms_eval.api.instance import Instance
 from lmms_eval.api.model import lmms
 from lmms_eval.api.registry import register_model
 from lmms_eval.imports import optional_import
+from lmms_eval.models.model_utils.debug_utils import log_debug_sample
+from lmms_eval.models.model_utils.gen_metrics import log_metrics
+
+try:
+    import decord
+except ImportError:
+    decord = None
 
 process_vision_info, _has_qwen_vl = optional_import("qwen_vl_utils", "process_vision_info")
 if not _has_qwen_vl:
@@ -44,6 +51,8 @@ class Llava_OneVision1_5(lmms):
         image_first: Optional[bool] = True,
         reasoning_prompt: Optional[str] = None,
         max_length: int = 2048,
+        debug_samples: bool = False,
+        num_debug_samples: int = 5,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -108,6 +117,9 @@ class Llava_OneVision1_5(lmms):
         self._max_length = int(max_length)
         self.batch_size_per_gpu = int(batch_size)
         self.use_cache = use_cache
+        self.debug_samples = debug_samples
+        self.num_debug_samples = num_debug_samples
+        self._debug_samples_printed = 0
 
         if accelerator.num_processes > 1:
             assert accelerator.distributed_type in [
@@ -126,6 +138,9 @@ class Llava_OneVision1_5(lmms):
         else:
             self._rank = 0
             self._world_size = 1
+
+        if self.debug_samples and self.rank == 0:
+            eval_logger.info(f"Debug mode enabled: will print first {self.num_debug_samples} samples")
 
     @property
     def config(self):
@@ -192,6 +207,8 @@ class Llava_OneVision1_5(lmms):
             return -len(toks), x[0]
 
         pbar = tqdm(total=len(requests), disable=(self.rank != 0), desc="Model Responding")
+        e2e_latency = 0.0
+        total_tokens = 0
         # we group requests by their generation_kwargs,
         # so that we don't try to execute e.g. greedy sampling and temp=0.8 sampling
         # in the same batch.
@@ -235,6 +252,8 @@ class Llava_OneVision1_5(lmms):
                 processed_visuals = []
                 for visual in visual_list[i]:
                     if isinstance(visual, str) and visual.endswith((".mp4", ".avi", ".mov")):  # Video file
+                        if decord is None:
+                            raise ImportError("decord is required for video processing. Install it via `pip install decord`.")
                         vr = decord.VideoReader(visual)
                         first_frame = vr[0].asnumpy()
                         height, width = first_frame.shape[:2]
@@ -336,27 +355,62 @@ class Llava_OneVision1_5(lmms):
                     temperature=float(current_gen_kwargs.get("temperature", 1.0)),
                     top_p=float(current_gen_kwargs.get("top_p", 1.0)),
                 )
+            start_time = time.time()
             with torch.inference_mode():
                 cont = self.model.generate(**gen_args)
+            end_time = time.time()
+            e2e_latency += end_time - start_time
 
             generated_ids_trimmed = [out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, cont)]
+            total_tokens += sum(len(ids) for ids in generated_ids_trimmed)
             answers = self.processor.batch_decode(
                 generated_ids_trimmed,
                 skip_special_tokens=True,
                 clean_up_tokenization_spaces=False,
             )
+
+            if self.debug_samples:
+                answers_with_tokens = self.processor.batch_decode(
+                    generated_ids_trimmed,
+                    skip_special_tokens=False,
+                    clean_up_tokenization_spaces=False,
+                )
+                prompts_with_tokens = self.processor.batch_decode(
+                    inputs.input_ids,
+                    skip_special_tokens=False,
+                    clean_up_tokenization_spaces=False,
+                )
+
             for i, ans in enumerate(answers):
                 for term in until:
                     if len(term) > 0:
                         ans = ans.split(term)[0]
                 answers[i] = ans
 
-            for ans, context in zip(answers, contexts):
+            for i, (ans, context) in enumerate(zip(answers, contexts)):
                 res.append(ans)
                 self.cache_hook.add_partial("generate_until", (context, gen_kwargs), ans)
                 pbar.update(1)
+
+                if self.debug_samples and self._debug_samples_printed < self.num_debug_samples and self.rank == 0:
+                    self._debug_samples_printed += 1
+                    log_debug_sample(
+                        sample_num=self._debug_samples_printed,
+                        total_samples=self.num_debug_samples,
+                        prompt_clean=texts[i],
+                        prompt_with_tokens=prompts_with_tokens[i],
+                        answer_clean=ans,
+                        answer_with_tokens=answers_with_tokens[i],
+                        attention_mask=inputs["attention_mask"][i],
+                    )
             # reorder this group of results back to original unsorted form
         res = re_ords.get_original(res)
+
+        log_metrics(
+            total_tokens=total_tokens,
+            e2e_latency=e2e_latency,
+            avg_speed=total_tokens / e2e_latency if e2e_latency > 0 else 0,
+        )
 
         pbar.close()
         return res

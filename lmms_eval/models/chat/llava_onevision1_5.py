@@ -10,6 +10,7 @@ from lmms_eval import utils
 from lmms_eval.api.instance import GenerationResult, Instance, TokenCounts
 from lmms_eval.api.registry import register_model
 from lmms_eval.imports import optional_import
+from lmms_eval.models.model_utils.debug_utils import log_debug_sample
 from lmms_eval.models.model_utils.gen_metrics import log_metrics
 from lmms_eval.models.simple.llava_onevision1_5 import (
     Llava_OneVision1_5 as LlavaOneVisionSimple,
@@ -39,8 +40,7 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
             grouping=True,
         )
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
-        num_iters = len(requests) // self.batch_size if len(requests) % self.batch_size == 0 else len(requests) // self.batch_size + 1
-        pbar = tqdm(total=num_iters, disable=(self.rank != 0), desc="Model Responding")
+        pbar = tqdm(total=len(requests), disable=(self.rank != 0), desc="Model Responding")
 
         total_elapsed_time = 0.0
         total_tokens = 0
@@ -143,14 +143,36 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
                 total_tokens += sum(len(ids) for ids in generated_ids_trimmed)
             except Exception as e:
                 eval_logger.error(f"Error {e} in generating")
-                cont = torch.zeros((1, 0), dtype=torch.long, device=self.device)
+                batch_size = inputs["input_ids"].shape[0]
+                cont = torch.zeros((batch_size, 0), dtype=torch.long, device=self.device)
 
             text_outputs = self.tokenizer.batch_decode(generated_ids_trimmed if generated_ids_trimmed is not None else cont, skip_special_tokens=True)
+
+            if self.debug_samples:
+                text_outputs_with_tokens = self.tokenizer.batch_decode(cont, skip_special_tokens=False)
+                prompts_with_tokens = self.processor.batch_decode(
+                    inputs["input_ids"],
+                    skip_special_tokens=False,
+                    clean_up_tokenization_spaces=False,
+                )
+
             for i, text_output in enumerate(text_outputs):
                 token_counts = TokenCounts(output_tokens=len(generated_ids_trimmed[i])) if generated_ids_trimmed is not None else None
                 res.append(GenerationResult(text=text_output, token_counts=token_counts))
-                self.cache_hook.add_partial("generate_until", (texts[0], gen_kwargs), text_output)
-            pbar.update(1)
+                self.cache_hook.add_partial("generate_until", (texts[i], gen_kwargs), text_output)
+
+                if self.debug_samples and self._debug_samples_printed < self.num_debug_samples and self.rank == 0:
+                    self._debug_samples_printed += 1
+                    log_debug_sample(
+                        sample_num=self._debug_samples_printed,
+                        total_samples=self.num_debug_samples,
+                        prompt_clean=texts[i],
+                        prompt_with_tokens=prompts_with_tokens[i],
+                        answer_clean=text_output,
+                        answer_with_tokens=text_outputs_with_tokens[i],
+                        attention_mask=inputs["attention_mask"][i],
+                    )
+                pbar.update(1)
 
         res = re_ords.get_original(res)
 

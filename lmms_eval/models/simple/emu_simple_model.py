@@ -6,6 +6,14 @@ base models without instruction tuning. Uses direct text prompts
 instead of chat templates.
 
 Concrete classes combine it with the appropriate base model.
+
+Generation-config precedence (highest -> lowest):
+1. Task gen_kwargs (YAML generation_kwargs or model_specific_generation_kwargs)
+   for max_new_tokens, temperature, do_sample, top_k, top_p, num_beams.
+2. Wrapper-supplied: pad/bos_token_id from tokenizer, use_cache from __init__.
+3. In-code fallback: max_new_tokens=1024 when no task value is provided.
+4. Everything else (eos_token_id, repetition_penalty, length_penalty, ...)
+   defers to model.generation_config shipped with the checkpoint.
 """
 
 import time
@@ -15,12 +23,12 @@ import torch
 from loguru import logger as eval_logger
 from PIL import Image
 from tqdm import tqdm
-from transformers.generation.configuration_utils import GenerationConfig
 
 from lmms_eval import utils
 from lmms_eval.api.instance import Instance
 from lmms_eval.models.emu3_encoder_base_model import EMU3EncoderBaseModel
 from lmms_eval.models.emu3p5_encoder_base_model import EMU3p5EncoderBaseModel
+from lmms_eval.models.model_utils.debug_utils import log_debug_sample
 from lmms_eval.models.model_utils.gen_metrics import log_metrics
 
 
@@ -36,6 +44,21 @@ class EMUSimpleModelMixin:
     - _load_llm: Load the language model
     - _load_tokenizer: Load the text tokenizer
     - image_placeholder: Property defining image placeholder token
+
+    Prompt format:
+        By default, the task-provided context (e.g. an instruction like
+        "Provide a one-sentence caption...") is used directly. For base
+        models that expect image-text continuation rather than instruction
+        following, set ``prompt_override`` to replace the context.
+
+        Use ``{context}`` inside the override to include the original
+        task prompt. An empty string means the model receives only the
+        image tokens (pure continuation).
+
+        Examples:
+            prompt_override=""             -> BOS <image> \\n
+            prompt_override="Caption:"     -> BOS <image> \\nCaption:
+            prompt_override="{context}"    -> BOS <image> \\n<task prompt>
     """
 
     is_simple = True
@@ -43,6 +66,9 @@ class EMUSimpleModelMixin:
 
     def generate_until(self, requests: List[Instance]) -> List[str]:
         """Generate responses for simple model with text prompts."""
+        if self.rank == 0 and self.prompt_override is not None:
+            eval_logger.info(f"{self._model_label} Simple: prompt_override=" f"{repr(self.prompt_override)}")
+
         res = []
 
         # Initialize statistics
@@ -59,9 +85,8 @@ class EMUSimpleModelMixin:
         # Group requests by generation_kwargs
         re_ords = utils.Collator([req.args for req in requests], _collate, grouping=True)
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
-        num_iters = len(requests) // self.batch_size if len(requests) % self.batch_size == 0 else len(requests) // self.batch_size + 1
         pbar = tqdm(
-            total=num_iters,
+            total=len(requests),
             disable=(self.rank != 0),
             desc="Model Responding",
         )
@@ -87,33 +112,35 @@ class EMUSimpleModelMixin:
             prompts = []
             images_list = []
             batch_contexts = []
+            chunk_results = [None] * len(contexts)
+            batch_to_chunk_idx = []
 
-            for context, visual_list in zip(contexts, visuals):
+            for idx, (context, visual_list) in enumerate(zip(contexts, visuals)):
                 total_samples += 1
 
                 # Handle text-only samples
-                if not visual_list or len(visual_list) == 0:
+                if not visual_list:
                     text_only_count += 1
-                    res.append("")
-                    self.cache_hook.add_partial(
-                        "generate_until",
-                        (context, gen_kwargs),
-                        "",
-                    )
-                    pbar.update(1)
-                    continue
-
-                # Handle multi-image samples
-                if len(visual_list) > 1:
-                    multi_image_count += 1
-                    if self.skip_multi_image:
-                        res.append("")
+                    if self.skip_text_only:
+                        chunk_results[idx] = ""
                         self.cache_hook.add_partial(
                             "generate_until",
                             (context, gen_kwargs),
                             "",
                         )
-                        pbar.update(1)
+                        continue
+                    visual_list = []
+
+                # Handle multi-image samples
+                if len(visual_list) > 1:
+                    multi_image_count += 1
+                    if self.skip_multi_image:
+                        chunk_results[idx] = ""
+                        self.cache_hook.add_partial(
+                            "generate_until",
+                            (context, gen_kwargs),
+                            "",
+                        )
                         continue
                     else:
                         # Take only first image
@@ -126,15 +153,26 @@ class EMUSimpleModelMixin:
                         img = Image.open(img)
                     pil_images.append(img)
 
-                # Inject image placeholder
+                # Apply prompt override if set (for base models)
+                if self.prompt_override is not None:
+                    context = self.prompt_override.replace("{context}", context)
+
+                # Build prompt: BOS + image placeholders + text context
+                bos = self.tokenizer.bos_token or ""
                 image_tokens = [self.image_placeholder] * len(pil_images)
-                prompt = " ".join(image_tokens) + "\n" + context
+                prompt = bos + " ".join(image_tokens) + "\n" + context
+                batch_to_chunk_idx.append(idx)
                 prompts.append(prompt)
                 images_list.append(pil_images)
                 batch_contexts.append(context)
 
             # Skip if all filtered
             if len(prompts) == 0:
+                # Append skipped results in chunk order
+                for result in chunk_results:
+                    if result is not None:
+                        res.append(result)
+                        pbar.update(1)
                 continue
 
             # Encode images and inject vision tokens
@@ -152,19 +190,24 @@ class EMUSimpleModelMixin:
             else:
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
-            # Create generation configuration
-            generation_config = GenerationConfig(
-                pad_token_id=self.tokenizer.pad_token_id,
-                bos_token_id=self.tokenizer.bos_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-                max_new_tokens=gen_kwargs.get("max_new_tokens", 1024),
-                temperature=gen_kwargs.get("temperature", 0.0),
-                do_sample=gen_kwargs.get("do_sample", False),
-                top_k=gen_kwargs.get("top_k", None),
-                top_p=gen_kwargs.get("top_p", None),
-                num_beams=gen_kwargs.get("num_beams", 1),
-                use_cache=self.use_cache,
-            )
+            # Build generate kwargs: defer to model.generation_config for any
+            # field the task didn't explicitly set (including eos_token_id).
+            generate_kwargs = {
+                "pad_token_id": self.tokenizer.pad_token_id,
+                "bos_token_id": self.tokenizer.bos_token_id,
+                "use_cache": self.use_cache,
+            }
+            for k in (
+                "max_new_tokens",
+                "temperature",
+                "do_sample",
+                "top_k",
+                "top_p",
+                "num_beams",
+            ):
+                if k in gen_kwargs:
+                    generate_kwargs[k] = gen_kwargs[k]
+            generate_kwargs.setdefault("max_new_tokens", 1024)
 
             model_inputs = {
                 "input_ids": inputs["input_ids"],
@@ -173,7 +216,7 @@ class EMUSimpleModelMixin:
 
             start_time = time.time()
             with torch.inference_mode():
-                outputs = self.model.generate(**model_inputs, generation_config=generation_config)
+                outputs = self.model.generate(**model_inputs, **generate_kwargs)
             end_time = time.time()
 
             # Trim input_ids from outputs (includes padding in batched mode)
@@ -198,28 +241,28 @@ class EMUSimpleModelMixin:
                 text_outputs[i] = output
 
             for i, (ans, context) in enumerate(zip(text_outputs, batch_contexts)):
-                res.append(ans)
+                chunk_idx = batch_to_chunk_idx[i]
+                chunk_results[chunk_idx] = ans
                 self.cache_hook.add_partial("generate_until", (context, gen_kwargs), ans)
-                pbar.update(1)
 
                 # Debug output
                 if self.debug_samples and self._debug_samples_printed < self.num_debug_samples and self.rank == 0:
                     self._debug_samples_printed += 1
-                    attn = model_inputs["attention_mask"][i]
-                    seq_len = attn.shape[0]
-                    n_pad = (attn == 0).sum().item()
-                    n_real = (attn == 1).sum().item()
-                    head = attn[:8].tolist()
-                    tail = attn[-8:].tolist()
-                    eval_logger.info("=" * 80)
-                    eval_logger.info(f"DEBUG SAMPLE {self._debug_samples_printed}/" f"{self.num_debug_samples}")
-                    eval_logger.info("=" * 80)
-                    eval_logger.info(f"PROMPT (clean): {prompts[i]}")
-                    eval_logger.info(f"PROMPT (with tokens): {prompts_with_tokens[i]}")
-                    eval_logger.info(f"ATTENTION MASK: len={seq_len} pad={n_pad} real={n_real} head={head} tail={tail}")
-                    eval_logger.info(f"ANSWER (clean): {ans}")
-                    eval_logger.info(f"ANSWER (with tokens): {answers_with_tokens[i]}")
-                    eval_logger.info("=" * 80)
+                    log_debug_sample(
+                        sample_num=self._debug_samples_printed,
+                        total_samples=self.num_debug_samples,
+                        prompt_clean=prompts[i],
+                        prompt_with_tokens=prompts_with_tokens[i],
+                        answer_clean=ans,
+                        answer_with_tokens=answers_with_tokens[i],
+                        attention_mask=model_inputs["attention_mask"][i],
+                    )
+
+            # Append all chunk results in correct order
+            for result in chunk_results:
+                if result is not None:
+                    res.append(result)
+                    pbar.update(1)
 
         # Reorder results
         res = re_ords.get_original(res)

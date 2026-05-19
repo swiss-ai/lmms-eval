@@ -1,32 +1,37 @@
 #!/bin/bash
 #SBATCH --account=a-infra01
-#SBATCH --job-name=eval-apertus-emu3_5-simple
+#SBATCH --job-name=eval-llama-emu3_5-simple
 #SBATCH --environment=emu3
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
-#SBATCH --time=12:00:00
-#SBATCH --output=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3p5_simple_%j.out
-#SBATCH --error=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_apertus_emu3p5_simple_%j.err
+#SBATCH --time=06:00:00
+#SBATCH --output=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_llama_emu3p5_simple_%j.out
+#SBATCH --error=/capstor/scratch/cscs/%u/lmms-eval/logs/eval_llama_emu3p5_simple_%j.err
 
 # Unset SSL_CERT_FILE to avoid FileNotFoundError inside NGC container
 # (host path /etc/ssl/ca-bundle.pem doesn't exist in container)
 unset SSL_CERT_FILE
 
-TASKS="mmmu_val_group_img,vqav2_val" #,pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa
+cd /users/rkreft/scratch_capstor/lmms-eval
+
+TASKS="coco2017_cap_val,coco_karpathy_test,flickr30k_test,nocaps_val,textcaps_val,detailcaps,coco_cap_chair"
 BATCH_SIZE=1
-MODEL="apertus_emu3p5_simple"
+MODEL="llama_emu3p5_simple"
 MODEL_PATH=""        # Required: path to HF model or HF hub identifier (e.g. "org/model-name")
 TOKENIZER_PATH=""    # Required: path to tokenizer or HF hub identifier (defaults to MODEL_PATH)
-RES_PATH="/capstor/scratch/cscs/$USER/PDM/results/lmms_eval/apertus_emu3p5_simple_results"
+RES_PATH="/capstor/scratch/cscs/$USER/PDM/results/lmms_eval/llama_emu3p5_simple_results"
 EVAL_DIR=/capstor/scratch/cscs/$USER/lmms-eval
-OFFLINE_DATASETS="true"
+OFFLINE_DATASETS="false"
 
 # Emu3.5 default pixel ranges (use arithmetic expressions like 1400*1400)
 EMU_MIN_PIXELS=$((256*256))
 EMU_MAX_PIXELS=$((1400*1400))
+
+# Limit number of samples per task (disabled by default)
+LIMIT=""
 
 # Debug mode (disabled by default)
 DEBUG_SAMPLES="false"
@@ -65,6 +70,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --emu-max-pixels)
             EMU_MAX_PIXELS=$(($2))
+            shift 2
+            ;;
+        --limit)
+            LIMIT="$2"
             shift 2
             ;;
         --debug)
@@ -120,6 +129,7 @@ echo "Batch size(per GPU):  ${BATCH_SIZE}"
 echo "Emu min pixels:       ${EMU_MIN_PIXELS}"
 echo "Emu max pixels:       ${EMU_MAX_PIXELS}"
 echo "Offline datasets:     ${OFFLINE_DATASETS}"
+echo "Limit:                ${LIMIT:-none}"
 echo "Debug samples:        ${DEBUG_SAMPLES} (${NUM_DEBUG_SAMPLES})"
 if [ "$PROMPT_OVERRIDE_SET" = "true" ]; then
     echo "Prompt override:      '${PROMPT_OVERRIDE}'"
@@ -165,11 +175,17 @@ if [ "$PROMPT_OVERRIDE_SET" = "true" ]; then
 fi
 
 echo "Running LM evaluation..."
+LIMIT_FLAG=""
+if [ -n "$LIMIT" ]; then
+    LIMIT_FLAG="--limit ${LIMIT}"
+fi
+
 accelerate launch -m lmms_eval \
     --model "${MODEL}" \
     --model_args "${MODEL_ARGS}" \
     --tasks "${TASKS}" \
     --batch_size "${BATCH_SIZE}" \
-    --output_path "${RES_PATH}"
+    --output_path "${RES_PATH}" \
+    ${LIMIT_FLAG}
 
 echo "End Reached"
