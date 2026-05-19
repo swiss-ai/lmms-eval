@@ -1,7 +1,5 @@
-import base64
 import re
 import time
-from io import BytesIO
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
@@ -16,6 +14,7 @@ from lmms_eval import utils
 from lmms_eval.api.instance import Instance
 from lmms_eval.api.model import lmms
 from lmms_eval.api.registry import register_model
+from lmms_eval.imports import optional_import
 from lmms_eval.models.model_utils.debug_utils import log_debug_sample
 from lmms_eval.models.model_utils.gen_metrics import log_metrics
 
@@ -24,9 +23,8 @@ try:
 except ImportError:
     decord = None
 
-try:
-    from qwen_vl_utils import process_vision_info
-except ImportError:
+process_vision_info, _has_qwen_vl = optional_import("qwen_vl_utils", "process_vision_info")
+if not _has_qwen_vl:
     eval_logger.warning("Failed to import qwen_vl_utils; Please install it via `pip install qwen-vl-utils`")
 
 
@@ -48,9 +46,6 @@ class Llava_OneVision1_5(lmms):
         min_pixels: int = 256 * 28 * 28,
         max_pixels: int = 1605632,
         max_num_frames: int = 32,
-        use_custom_video_loader: Optional[bool] = False,
-        fps: Optional[float] = None,  # Only applicable if use_custom_video_loader is True
-        max_image_size: Optional[int] = None,  # Only applicable if use_custom_video_loader is True
         system_prompt: Optional[str] = "You are a helpful assistant.",
         interleave_visuals: Optional[bool] = False,
         image_first: Optional[bool] = True,
@@ -61,6 +56,13 @@ class Llava_OneVision1_5(lmms):
         **kwargs,
     ) -> None:
         super().__init__()
+
+        # Extract revision from kwargs
+        # Allows for specifying a particular model revision from Hugging Face Hub
+        # when the official repo havent updated to be compatible with the latest transformers.
+        # e.g. revision='6b3d97091777ae511438186d60270089515adc0d' to be used with transformers==4.57.6
+        revision = kwargs.pop("revision", None)
+
         if kwargs:
             eval_logger.warning(f"Ignoring unexpected kwargs: {list(kwargs.keys())}")
 
@@ -68,14 +70,6 @@ class Llava_OneVision1_5(lmms):
         valid_attn_implementations = [None, "flash_attention_2", "sdpa", "eager"]
         if attn_implementation not in valid_attn_implementations:
             raise ValueError(f"attn_implementation must be one of {valid_attn_implementations}, got {attn_implementation}")
-
-        self.use_custom_video_loader = use_custom_video_loader
-        self.fps = fps
-        # if self.fps and not self.use_custom_video_loader:
-        #     raise ValueError("FPS is only applicable if use_custom_video_loader is True")
-        self.max_image_size = max_image_size
-        if self.max_image_size and not self.use_custom_video_loader:
-            raise ValueError("max_image_size is only applicable if use_custom_video_loader is True")
 
         accelerator = Accelerator()
         if accelerator.num_processes > 1:
@@ -91,6 +85,10 @@ class Llava_OneVision1_5(lmms):
             "device_map": self.device_map,
             "trust_remote_code": True,
         }
+
+        # Add revision if specified
+        if revision is not None:
+            model_kwargs["revision"] = revision
 
         # Add attention implementation if specified
         if attn_implementation is not None:

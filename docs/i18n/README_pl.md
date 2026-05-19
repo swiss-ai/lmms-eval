@@ -16,14 +16,16 @@
 
 🏠 [Strona Główna LMMs-Lab](https://www.lmms-lab.com/) | 🤗 [Zbiory Danych Huggingface](https://huggingface.co/lmms-lab) | <a href="https://emoji.gg/emoji/1684-discord-thread"><img src="https://cdn3.emoji.gg/emojis/1684-discord-thread.png" width="14px" height="14px" alt="Discord_Thread"></a> [discord/lmms-eval](https://discord.gg/zdkwKUqrPy)
 
-📖 [Obsługiwane Zadania (100+)](https://github.com/EvolvingLMMs-Lab/lmms-eval/blob/main/docs/current_tasks.md) | 🌟 [Obsługiwane Modele (30+)](https://github.com/EvolvingLMMs-Lab/lmms-eval/tree/main/lmms_eval/models) | 📚 [Dokumentacja](../README.md)
+📖 [Obsługiwane Zadania (100+)](https://github.com/EvolvingLMMs-Lab/lmms-eval/blob/main/docs/advanced/current_tasks.md) | 🌟 [Obsługiwane Modele (30+)](https://github.com/EvolvingLMMs-Lab/lmms-eval/tree/main/lmms_eval/models) | 📚 [Dokumentacja](../README.md)
 
 ---
 
 ## Ogłoszenia
 
-- [2025-10] 🚀🚀 **LMMs-Eval v0.5** jest tutaj! Ta główna wersja wprowadza kompleksową ewaluację audio, buforowanie odpowiedzi, 5 nowych modeli (GPT-4o Audio Preview, Gemma-3, LongViLA-R1, LLaVA-OneVision 1.5, Thyme) oraz ponad 50 nowych wariantów benchmarków obejmujących audio (Step2, VoiceBench, WenetSpeech), wizję (CharXiv, Lemonade) i rozumowanie (CSBench, SciBench, MedQA, SuperGPQA). Szczegóły w [notatkach wydania](https://github.com/EvolvingLMMs-Lab/lmms-eval/blob/main/docs/lmms-eval-0.5.md).
-- [2025-07] 🚀🚀 Wydaliśmy `lmms-eval-0.4`. Szczegóły w [notatkach wydania](https://github.com/EvolvingLMMs-Lab/lmms-eval/blob/main/docs/lmms-eval-0.4.md).
+**Styczeń 2026** - Rozpoznaliśmy, że rozumowanie przestrzenne i kompozycyjne pozostało martwym punktem w istniejących benchmarkach. Dodaliśmy [CaptionQA](https://captionqa.github.io/), [SpatialTreeBench](https://github.com/THUNLP-MT/SpatialTreeBench), [SiteBench](https://sitebench.github.io/) oraz [ViewSpatial](https://github.com/ViewSpatial/ViewSpatial). Dla zespołów prowadzących zdalne procesy ewaluacji wprowadziliśmy serwer HTTP eval (#972). Dla tych, którzy potrzebują rygoru statystycznego, dodaliśmy CLT i estymację zgrupowanego błędu standardowego (#989).
+
+- [2025-10] 🚀🚀 **LMMs-Eval v0.5** jest tutaj! Ta główna wersja wprowadza kompleksową ewaluację audio, buforowanie odpowiedzi, 5 nowych modeli (GPT-4o Audio Preview, Gemma-3, LongViLA-R1, LLaVA-OneVision 1.5, Thyme) oraz ponad 50 nowych wariantów benchmarków obejmujących audio (Step2, VoiceBench, WenetSpeech), wizję (CharXiv, Lemonade) i rozumowanie (CSBench, SciBench, MedQA, SuperGPQA). Szczegóły w [notatkach wydania](https://github.com/EvolvingLMMs-Lab/lmms-eval/blob/main/docs/releases/lmms-eval-0.5.md).
+- [2025-07] 🚀🚀 Wydaliśmy `lmms-eval-0.4`. Szczegóły w [notatkach wydania](https://github.com/EvolvingLMMs-Lab/lmms-eval/blob/main/docs/releases/lmms-eval-0.4.md).
 
 ## Dlaczego `lmms-eval`?
 
@@ -91,10 +93,66 @@ bash examples/models/vllm_qwen2vl.sh
 bash examples/models/llava_onevision.sh
 ```
 
+**Ewaluacja LLaVA-OneVision1_5**
+
+```bash
+bash examples/models/llava_onevision1_5.sh
+```
+
+**Ewaluacja LLaMA-3.2-Vision**
+
+```bash
+bash examples/models/llama_vision.sh
+```
+
+**Ewaluacja Qwen2.5-VL**
+
+```bash
+bash examples/models/qwen2_5_vl.sh
+```
+
+**Ewaluacja z tensor parallel dla większego modelu (llava-next-72b)**
+
+```bash
+bash examples/models/tensor_parallel.sh
+```
+
+**Ewaluacja z SGLang dla większego modelu (llava-next-72b)**
+
+```bash
+bash examples/models/sglang.sh
+```
+
 **Więcej Parametrów**
 
 ```bash
 python3 -m lmms_eval --help
+```
+
+**Zmienne Środowiskowe**
+Przed uruchomieniem eksperymentów i ewaluacji, zalecamy wyeksportowanie następujących zmiennych środowiskowych do środowiska. Niektóre są niezbędne do działania określonych zadań.
+
+```bash
+export OPENAI_API_KEY="<YOUR_API_KEY>"
+export HF_HOME="<Path to HF cache>" 
+export HF_TOKEN="<YOUR_API_KEY>"
+export HF_HUB_ENABLE_HF_TRANSFER="1"
+export REKA_API_KEY="<YOUR_API_KEY>"
+# Inne możliwe zmienne środowiskowe to m.in. 
+# ANTHROPIC_API_KEY, DASHSCOPE_API_KEY itp.
+```
+
+**Typowe Problemy ze Środowiskiem**
+
+Czasami możesz napotkać typowe problemy, na przykład błędy związane z httpx lub protobuf. Aby rozwiązać te problemy, możesz najpierw spróbować:
+
+```bash
+python3 -m pip install httpx==0.23.3;
+python3 -m pip install protobuf==3.20;
+# Jeśli używasz numpy==2.x, może to czasami powodować błędy
+python3 -m pip install numpy==1.26;
+# Czasami sentencepiece jest wymagane do działania tokenizera
+python3 -m pip install sentencepiece;
 ```
 
 ## Dodawanie Niestandardowego Modelu i Zbioru Danych
@@ -116,5 +174,15 @@ lmms_eval jest forkiem [lm-eval-harness](https://github.com/EleutherAI/lm-evalua
       archivePrefix={arXiv},
       primaryClass={cs.CL},
       url={https://arxiv.org/abs/2407.12772}, 
+}
+
+@misc{lmms_eval2024,
+    title={LMMs-Eval: Accelerating the Development of Large Multimoal Models},
+    url={https://github.com/EvolvingLMMs-Lab/lmms-eval},
+    author={Bo Li*, Peiyuan Zhang*, Kaichen Zhang*, Fanyi Pu*, Xinrun Du, Yuhao Dong, Haotian Liu, Yuanhan Zhang, Ge Zhang, Chunyuan Li and Ziwei Liu},
+    publisher    = {Zenodo},
+    version      = {v0.1.0},
+    month={March},
+    year={2024}
 }
 ```

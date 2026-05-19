@@ -1,20 +1,14 @@
-import datetime
-import json
 import os
 import re
 import sys
-from collections import defaultdict
 from functools import partial
 from pathlib import Path
-from typing import Dict, List, Optional, Union
 
 import cv2
 import datasets
 import numpy as np
 import yaml
 from loguru import logger as eval_logger
-
-from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
 
 VIDEO_TYPE = ["short", "medium", "long"]
 CATEGORIES = ["Knowledge", "Film & Television", "Sports Competition", "Artistic Performance", "Life Record", "Multilingual"]
@@ -260,25 +254,9 @@ def videomme_doc_to_text_subtitle(doc, lmms_eval_specific_kwargs=None):
 
 
 def extract_characters_regex(s):
-    s = s.strip()
-    answer_prefixes = [
-        "The best answer is",
-        "The correct answer is",
-        "The answer is",
-        "The answer",
-        "The best option is" "The correct option is",
-        "Best answer:" "Best option:",
-    ]
-    for answer_prefix in answer_prefixes:
-        s = s.replace(answer_prefix, "")
+    from lmms_eval.tasks._task_utils.mcq_extract import extract_mcq_answer
 
-    if len(s.split()) > 10 and not re.search("[ABCD]", s):
-        return ""
-
-    matches = re.search(r"[ABCD]", s)
-    if matches is None:
-        return ""
-    return matches[0]
+    return extract_mcq_answer(s, choices=["A", "B", "C", "D"])
 
 
 matrices = []
@@ -300,15 +278,27 @@ def videomme_process_results(doc, results):
     """
     pred = results[0]
     pred_ans = extract_characters_regex(pred)
-    # gt_ans = doc["answer"].lower().strip().replace(".", "")
+    gt_ans = doc["answer"]
 
     category = doc["domain"]
     sub_category = doc["sub_category"]
     task_category = doc["task_type"]
-    data_dict = {"question_id": doc["question_id"], "duration": doc["duration"], "category": category, "sub_category": sub_category, "task_category": task_category, "pred_answer": pred_ans, "answer": doc["answer"]}
+    # score: 0/1 correctness for stderr calculation
+    # videoID: for clustered stderr (questions from same video are correlated)
+    score = 1.0 if pred_ans.lower() == gt_ans.lower() else 0.0
+    data_dict = {
+        "question_id": doc["question_id"],
+        "duration": doc["duration"],
+        "category": category,
+        "sub_category": sub_category,
+        "task_category": task_category,
+        "pred_answer": pred_ans,
+        "answer": gt_ans,
+        "score": score,
+        "videoID": doc["videoID"],
+    }
 
-    # return {f"videomme_perception_score": data_dict for metric in matrices}
-    return {f"videomme_perception_score": data_dict}
+    return {"videomme_perception_score": data_dict}
 
 
 def videomme_aggregate_results(results):

@@ -7,26 +7,25 @@ from loguru import logger as eval_logger
 from tqdm import tqdm
 
 from lmms_eval import utils
-from lmms_eval.api.instance import Instance
+from lmms_eval.api.instance import GenerationResult, Instance, TokenCounts
 from lmms_eval.api.registry import register_model
 from lmms_eval.models.model_utils.debug_utils import log_debug_sample
+from lmms_eval.imports import optional_import
 from lmms_eval.models.model_utils.gen_metrics import log_metrics
 from lmms_eval.models.simple.llava_onevision1_5 import (
     Llava_OneVision1_5 as LlavaOneVisionSimple,
 )
 from lmms_eval.protocol import ChatMessages
 
-try:
-    from qwen_vl_utils import process_vision_info
-except ImportError:
-    process_vision_info = None
+process_vision_info, _ = optional_import("qwen_vl_utils", "process_vision_info")
 
 
 @register_model("llava_onevision1_5_chat")
 class Llava_OneVision1_5(LlavaOneVisionSimple):
     is_simple = False
+    fps = None
 
-    def generate_until(self, requests: List[Instance]) -> List[str]:
+    def generate_until(self, requests: List[Instance]) -> List[GenerationResult]:
         assert process_vision_info is not None, "qwen_vl_utils is required. Please install it via `pip install qwen-vl-utils`"
 
         res = []
@@ -43,7 +42,7 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
         pbar = tqdm(total=len(requests), disable=(self.rank != 0), desc="Model Responding")
 
-        e2e_latency = 0.0
+        total_elapsed_time = 0.0
         total_tokens = 0
 
         if self.batch_size > 1:
@@ -132,22 +131,22 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
                     top_p=float(gen_kwargs.get("top_p", 1.0)) if gen_kwargs.get("top_p") is not None else None,
                 )
 
+            generated_ids_trimmed = None
             try:
                 start_time = time.time()
                 with torch.inference_mode():
                     cont = self.model.generate(**gen_args)
                 end_time = time.time()
-                e2e_latency += end_time - start_time
+                total_elapsed_time += end_time - start_time
 
-                # Remove prompt tokens
-                cont = cont[:, inputs["input_ids"].shape[-1] :]
-                total_tokens += sum(len(ids) for ids in cont)
+                generated_ids_trimmed = [out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, cont)]
+                total_tokens += sum(len(ids) for ids in generated_ids_trimmed)
             except Exception as e:
                 eval_logger.error(f"Error {e} in generating")
                 batch_size = inputs["input_ids"].shape[0]
                 cont = torch.zeros((batch_size, 0), dtype=torch.long, device=self.device)
 
-            text_outputs = self.tokenizer.batch_decode(cont, skip_special_tokens=True)
+            text_outputs = self.tokenizer.batch_decode(generated_ids_trimmed if generated_ids_trimmed is not None else cont, skip_special_tokens=True)
 
             if self.debug_samples:
                 text_outputs_with_tokens = self.tokenizer.batch_decode(cont, skip_special_tokens=False)
@@ -158,7 +157,8 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
                 )
 
             for i, text_output in enumerate(text_outputs):
-                res.append(text_output)
+                token_counts = TokenCounts(output_tokens=len(generated_ids_trimmed[i])) if generated_ids_trimmed is not None else None
+                res.append(GenerationResult(text=text_output, token_counts=token_counts))
                 self.cache_hook.add_partial("generate_until", (texts[i], gen_kwargs), text_output)
 
                 if self.debug_samples and self._debug_samples_printed < self.num_debug_samples and self.rank == 0:
@@ -177,9 +177,9 @@ class Llava_OneVision1_5(LlavaOneVisionSimple):
         res = re_ords.get_original(res)
 
         metric_dict = {
-            "total_tokens": total_tokens,
-            "e2e_latency": e2e_latency,
-            "avg_speed": total_tokens / e2e_latency if e2e_latency > 0 else 0,
+            "total_gen_tokens": total_tokens,
+            "total_elapsed_time": total_elapsed_time,
+            "avg_speed": total_tokens / total_elapsed_time if total_elapsed_time > 0 else 0,
             "additional_metrics": {
                 "rank": self.rank,
             },
