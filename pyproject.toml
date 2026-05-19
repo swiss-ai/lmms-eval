@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lmms_eval"
-version = "0.5.0"
+version = "0.7.1"
 authors = [
     { name = "LMMMs-Lab Evaluation Team", email = "lmms-lab@outlook.com" },
 ]
@@ -19,7 +19,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "accelerate>=0.29.1",
     "black>=24.1.0",
@@ -36,7 +36,6 @@ dependencies = [
     "pytablewriter",
     "sacrebleu>=1.5.0",
     "scikit-learn>=0.24.1",
-    "sqlitedict>=2.1.0",
     "torch>=2.1.0", # to enable sdpa mode for running 34B model on one 80GB GPU
     "torchvision>=0.16.0",
     "timm",
@@ -64,18 +63,17 @@ dependencies = [
     "loguru",
     "hf_transfer",
     "tenacity>=8.3.0",
-    "wandb>=0.16.0",
+    "wandb==0.25.0",
     "tiktoken",
     "pre-commit",
     "pydantic",
     "packaging",
-    #"decord; platform_system != 'Darwin'", # Decord is not available for aarch64 as wheel, need to build from source but for now not needed!
-    #"eva-decord; platform_system == 'Darwin'",
     "zss",
     "protobuf",
     "sentence_transformers",
     "python-dotenv",
     "qwen-vl-utils>=0.0.14",
+    "math-verify",
 ]
 
 [project.optional-dependencies]
@@ -87,6 +85,9 @@ core = [
 server = [
     "fastapi",
     "uvicorn",
+]
+mcp = [
+    "mcp[cli]>=1.20.0",
 ]
 audio = [
     "more-itertools",
@@ -106,20 +107,27 @@ metrics = [
 gemini = [
     "google-generativeai",
 ]
+litellm = [
+    "litellm",
+]
 reka = [
     "httpx>=0.23.3",
     "reka-api",
 ]
 qwen = [
-    "decord",
     "qwen_vl_utils",
 ]
 emu3 = [
     "torch==2.2.1",
     "transformers==4.44.0",
     "tiktoken==0.6.0",
-    "flash-attn==2.5.7",
     "pillow",
+    # flash-attn is intentionally NOT pinned here: it is a CUDA-only,
+    # build-from-source package that cannot be resolved by uv's universal
+    # lock on CPU/CI. The emu3 models default to attn_implementation
+    # "flash_attention_2" but accept "sdpa"/"eager"/None. On GPU hosts that
+    # want FlashAttention, install it manually:
+    #   pip install flash-attn==2.5.7 --no-build-isolation
 ]
 emu3_5 = [
     "pillow>=9.0.0",
@@ -147,13 +155,37 @@ mmsearch = [
     "FlagEmbedding",
     "rouge",
 ]
+prismmbench = [
+    "pdf2image>=1.17.0",
+    "pdfplumber>=0.11.9"
+]
+tui = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+]
+video = [
+    "torchcodec>=0.3.0",
+]
+video-legacy = [
+    "decord; platform_system != 'Darwin'",
+    "eva-decord; platform_system == 'Darwin' and python_version < '3.12'",
+]
 all = [
     "lmms_eval[core]",
+    "lmms_eval[mcp]",
     "lmms_eval[gemini]",
     "lmms_eval[reka]",
     "lmms_eval[qwen]",
     "lmms_eval[mmsearch]",
+    "lmms_eval[tui]",
+    "lmms_eval[video]",
 ]
+
+[tool.setuptools.package-data]
+"lmms_eval" = ["**/*.yaml", "**/*.yml", "**/*.json", "**/*.txt"]
+"lmms_eval.tui.web.dist" = ["**/*"]
+"lmms_eval.tui.web.dist.assets" = ["**/*"]
+
 # Benchmark-specific dependencies
 ocrbench_v2 = [
     "pandas>=2.0.0",
@@ -205,8 +237,42 @@ exclude = [
 ]
 
 [project.scripts]
-lmms-eval = "lmms_eval.__main__:cli_evaluate"
+lmms-eval = "lmms_eval.cli.dispatch:main"
+lmms-eval-mcp = "lmms_eval.mcp:main"
+lmms-eval-ui = "lmms_eval.tui.cli:main"
 
 [project.urls]
 Homepage = "https://lmms-lab.github.io"
 Repository = "https://github.com/EvolvingLMMs-Lab/lmms-eval"
+
+[dependency-groups]
+dev = [
+    "textual>=7.2.0",
+    "textual-dev>=1.8.0",
+]
+
+[tool.uv]
+# emu3 and emu3-5 target different model stacks and pin incompatible
+# transformers/tiktoken versions. Declaring them as conflicting lets uv
+# build a universal lockfile (resolving each extra separately) instead of
+# failing when it tries to satisfy both at once.
+conflicts = [
+    [
+        { extra = "emu3" },
+        { extra = "emu3-5" },
+    ],
+]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+markers = [
+    "gpu: requires GPU hardware (deselect with '-m not gpu')",
+    "api: requires external API keys (deselect with '-m not api')",
+    "slow: slow integration tests (deselect with '-m not slow')",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

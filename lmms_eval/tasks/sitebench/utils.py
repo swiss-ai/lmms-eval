@@ -6,9 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
-import torch
 import yaml
-from loguru import logger as eval_logger
 from PIL import Image
 
 UpperLetters = list(string.ascii_uppercase)
@@ -16,9 +14,19 @@ Categories = {
     "counting & existence",
     "spatial relationship reasoning",
     "object localization & positioning",
-    "depth & 3d understanding",
-    "movement navigation & intent prediction",
+    "3d information understanding",
+    "movement prediction & navigation",
     "multi-view & cross-image reasoning",
+}
+
+# Mapping from category name to metric key suffix
+CATEGORY_TO_METRIC_KEY = {
+    "3d information understanding": "3d_information_understanding",
+    "counting & existence": "counting_and_existence",
+    "movement prediction & navigation": "movement_prediction_and_navigation",
+    "multi-view & cross-image reasoning": "multiview_and_crossimage_reasoning",
+    "object localization & positioning": "object_localization_and_positioning",
+    "spatial relationship reasoning": "spatial_relationship_reasoning",
 }
 
 # Get the cache directory from the config file
@@ -107,15 +115,15 @@ def spatial_doc_to_text_image(doc, lmmseval_specific_kwargs=None):
 
     prompt = ""
     # check if '<image>' is in the question, interleaved format
-    if not "<image>" in question and not "<image>" in option_text:
+    if "<image>" not in question and "<image>" not in option_text:
         prompt += "<image>" * len(doc["visual"]) + "\n"
 
     prompt += "Question: " + question + "\n"
     prompt += "Options:\n" + option_text + "\n"
 
-    # check the post_prompt
-    if "post_prompt" in lmmseval_specific_kwargs and lmmseval_specific_kwargs["post_prompt"] != "":
-        prompt += lmmseval_specific_kwargs["post_prompt"]
+    # Append post prompt if provided
+    if lmmseval_specific_kwargs:
+        prompt += lmmseval_specific_kwargs.get("default", {}).get("post_prompt", "")
 
     return prompt
 
@@ -128,18 +136,87 @@ def spatial_doc_to_text_video(doc, lmmseval_specific_kwargs=None):
     option_text = "\n".join(f"{UpperLetters[i]}: {options[i]}" for i in range(len(options)))
 
     prompt = pre_prompt + "\n"
+
     # check the pre_prompt
-    if "pre_prompt" in lmmseval_specific_kwargs and lmmseval_specific_kwargs["pre_prompt"] != "":
-        prompt += lmmseval_specific_kwargs["pre_prompt"]
+    if lmmseval_specific_kwargs:
+        prompt += lmmseval_specific_kwargs.get("default", {}).get("pre_prompt", "")
 
     prompt += "Question: " + question + "\n"
     prompt += "Options:\n" + option_text + "\n"
 
-    # check the post_prompt
-    if "post_prompt" in lmmseval_specific_kwargs and lmmseval_specific_kwargs["post_prompt"] != "":
-        prompt += lmmseval_specific_kwargs["post_prompt"]
+    # Append post prompt if provided
+    if lmmseval_specific_kwargs:
+        prompt += lmmseval_specific_kwargs.get("default", {}).get("post_prompt", "")
 
     return prompt
+
+
+def spatial_doc_to_messages_image(doc, lmms_eval_specific_kwargs=None):
+    """
+    Convert a sitebench image document to chat messages format.
+    Builds interleaved image-text messages for chat-based models.
+
+    lmms_eval_specific_kwargs: dict, optional
+        A dictionary containing evaluation-specific keyword arguments.
+        If 'interleave_visuals' is set to False in the 'default' section,
+        the function will generate non-interleaved messages.
+    """
+    if lmms_eval_specific_kwargs and lmms_eval_specific_kwargs.get("default", {}).get("interleave_visuals", True) is False:
+        # Fallback to non-interleaved format - content must be a list for ChatMessages
+        question = spatial_doc_to_text_image(doc, lmms_eval_specific_kwargs)
+        visuals = spatial_doc_to_visual_image(doc)
+        # Build content as a list with images first, then text
+        content = []
+        for visual in visuals:
+            content.append({"type": "image", "url": visual})
+        content.append({"type": "text", "text": question})
+        messages = [{"role": "user", "content": content}]
+        eval_logger.debug(f"[sitebench image] Generated messages (non-interleaved): {messages}")
+        return messages
+
+    question = spatial_doc_to_text_image(doc, lmms_eval_specific_kwargs)
+    visuals = spatial_doc_to_visual_image(doc)
+
+    messages = [{"role": "user", "content": []}]
+    interleaved_content = question.split("<image>")
+
+    # Allow more visuals than placeholders by only attaching pre-image text
+    # if a corresponding segment exists. Always append the final trailing text.
+    for i in range(len(visuals)):
+        if i < len(interleaved_content) - 1:
+            text = interleaved_content[i].strip()
+            if text != "":
+                messages[0]["content"].append({"type": "text", "text": text})
+        messages[0]["content"].append({"type": "image", "url": visuals[i]})
+
+    # Append the trailing text after the last image
+    if len(interleaved_content) > 0:
+        trailing_text = interleaved_content[-1].strip()
+        if trailing_text:
+            messages[0]["content"].append({"type": "text", "text": trailing_text})
+
+    return messages
+
+
+def spatial_doc_to_messages_video(doc, lmms_eval_specific_kwargs=None):
+    """
+    Convert a sitebench video document to chat messages format.
+    Builds video-text messages for chat-based models.
+    """
+    question = spatial_doc_to_text_video(doc, lmms_eval_specific_kwargs)
+    visuals = spatial_doc_to_visual_video(doc)
+
+    # Video uses a simpler format - video first, then the question text
+    messages = [{"role": "user", "content": []}]
+
+    # Add video(s)
+    for video_path in visuals:
+        messages[0]["content"].append({"type": "video", "url": video_path})
+
+    # Add the question text
+    messages[0]["content"].append({"type": "text", "text": question})
+
+    return messages
 
 
 def spatial_process_results(doc, results):
@@ -154,13 +231,27 @@ def spatial_process_results(doc, results):
     accuracy_dict = {"overall": score, category: score, dataset: score, "total": 1}
 
     adjusted_score = score - 1.0 / len(all_choices)
-    chance_adjusted_accuracy_dict = {"overall": adjusted_score, category: adjusted_score, dataset: adjusted_score, "total": 1.0 - 1.0 / len(all_choices)}
+    chance_adjusted_accuracy_dict = {
+        "overall": adjusted_score,
+        category: adjusted_score,
+        dataset: adjusted_score,
+        "total": 1.0 - 1.0 / len(all_choices),
+    }
 
-    return {"accuracy": accuracy_dict, "chance_adjusted_acc": chance_adjusted_accuracy_dict}
+    result = {
+        "accuracy": accuracy_dict,
+        "chance_adjusted_acc": chance_adjusted_accuracy_dict,
+    }
+
+    # Per-category accuracy and chance-adjusted accuracy
+    for cat_name, metric_key in CATEGORY_TO_METRIC_KEY.items():
+        result[f"{metric_key}_acc"] = {"score": score, "category": category, "target_category": cat_name}
+        result[f"{metric_key}_caa"] = {"score": adjusted_score, "category": category, "target_category": cat_name, "total": 1.0 - 1.0 / len(all_choices)}
+
+    return result
 
 
 def spatial_aggregate_results(results):
-
     total_correct, total_examples = 0, 0
     category_correct, category_total = defaultdict(int), defaultdict(int)
     dataset_correct, dataset_total = defaultdict(int), defaultdict(int)
@@ -201,3 +292,71 @@ def spatial_aggregate_results(results):
     #     f.write("=" * 50 + "\n")
 
     return round(overall_accuracy, 5)
+
+
+def _aggregate_category_acc(results, target_category: str) -> float:
+    total_correct = 0
+    total_examples = 0
+    for r in results:
+        if r["category"] == target_category:
+            total_correct += r["score"]
+            total_examples += 1
+    return round((total_correct / total_examples) * 100, 5) if total_examples > 0 else 0.0
+
+
+def _aggregate_category_caa(results, target_category: str) -> float:
+    total_adjusted = 0.0
+    total_baseline = 0.0
+    for r in results:
+        if r["category"] == target_category:
+            total_adjusted += r["score"]
+            total_baseline += r["total"]
+    return round((total_adjusted / total_baseline) * 100, 5) if total_baseline > 0 else 0.0
+
+
+def aggregate_3d_information_understanding_acc(results):
+    return _aggregate_category_acc(results, "3d information understanding")
+
+
+def aggregate_3d_information_understanding_caa(results):
+    return _aggregate_category_caa(results, "3d information understanding")
+
+
+def aggregate_counting_and_existence_acc(results):
+    return _aggregate_category_acc(results, "counting & existence")
+
+
+def aggregate_counting_and_existence_caa(results):
+    return _aggregate_category_caa(results, "counting & existence")
+
+
+def aggregate_movement_prediction_and_navigation_acc(results):
+    return _aggregate_category_acc(results, "movement prediction & navigation")
+
+
+def aggregate_movement_prediction_and_navigation_caa(results):
+    return _aggregate_category_caa(results, "movement prediction & navigation")
+
+
+def aggregate_multiview_and_crossimage_reasoning_acc(results):
+    return _aggregate_category_acc(results, "multi-view & cross-image reasoning")
+
+
+def aggregate_multiview_and_crossimage_reasoning_caa(results):
+    return _aggregate_category_caa(results, "multi-view & cross-image reasoning")
+
+
+def aggregate_object_localization_and_positioning_acc(results):
+    return _aggregate_category_acc(results, "object localization & positioning")
+
+
+def aggregate_object_localization_and_positioning_caa(results):
+    return _aggregate_category_caa(results, "object localization & positioning")
+
+
+def aggregate_spatial_relationship_reasoning_acc(results):
+    return _aggregate_category_acc(results, "spatial relationship reasoning")
+
+
+def aggregate_spatial_relationship_reasoning_caa(results):
+    return _aggregate_category_caa(results, "spatial relationship reasoning")
