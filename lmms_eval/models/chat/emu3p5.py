@@ -182,8 +182,7 @@ class EMU3_5(EMU3p5EncoderBaseModel):
             # wrapped vision tokens and naturally handles text-only samples
             # (zero placeholders + empty image list).
             sample_data = []
-            chunk_size = len(chat_messages)
-            chunk_results = [None] * chunk_size
+            chunk_results = [None] * len(chat_messages)
             batch_to_chunk_idx = []
 
             chat_template = self.processor.chat_template
@@ -237,6 +236,9 @@ class EMU3_5(EMU3p5EncoderBaseModel):
                     images_for_sample.append(img)
 
                 images_slot = image_placeholder if images_for_sample else ""
+                # No BOS prepend: the Emu3.5 chat_template already starts with
+                # <|extra_203|>, which is the tokenizer's bos_token. Prepending
+                # again would duplicate BOS.
                 prompt = chat_template.format(question=text, images=images_slot)
 
                 batch_to_chunk_idx.append(idx)

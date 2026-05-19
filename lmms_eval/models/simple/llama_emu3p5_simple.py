@@ -47,28 +47,11 @@ class LlamaEmu3p5Simple(EMU3p5SimpleModel):
         **kwargs,
     ) -> None:
         """
-        Initialize Llama EMU3.5 simple model.
+        Wire Llama causal-LM weights to the EMU3.5 IBQ vision encoder.
 
-        Args:
-            model_descriptor: Path or HF identifier for Llama model
-            tokenizer_path: Path or HF identifier for tokenizer
-            vq_hub: Path or HF identifier for EMU3.5 IBQ vision tokenizer
-            device: Device to load model on
-            device_map: Device map for model
-            batch_size: Batch size per GPU
-            attn_implementation: Attention implementation
-            trust_remote_code: Whether to trust remote code
-            torch_dtype: Data type for model
-            vision_tokenizer_dtype: Data type for vision tokenizer
-            use_cache: Whether to use KV cache
-            emu_min_pixels: Minimum pixels for image
-            emu_max_pixels: Maximum pixels for image
-            skip_text_only: Skip text-only samples
-            skip_multi_image: Skip multi-image samples
-            debug_samples: Print debug samples
-            num_debug_samples: Number of debug samples to print
-            prompt_override: Override the task prompt. Use {context}
-                to include original. Empty string = pure continuation.
+        Thin forwarding constructor; every argument is passed through
+        unchanged to :class:`EMU3p5SimpleModel` (see its type-hinted
+        signature for accepted parameters).
         """
         super().__init__(
             model_descriptor=model_descriptor,
@@ -93,7 +76,11 @@ class LlamaEmu3p5Simple(EMU3p5SimpleModel):
         )
 
     def _load_tokenizer(self, tokenizer_path: str, **kwargs) -> AutoTokenizer:
-        """Load Llama tokenizer."""
+        """
+        Left padding is required so generated tokens stay contiguous
+        across a batch; a missing pad token falls back to eos so
+        batched generation does not error.
+        """
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, padding_side="left")
         if tokenizer.pad_token is None:
             eval_logger.warning("No pad_token found, setting pad_token to eos_token.")
@@ -101,10 +88,10 @@ class LlamaEmu3p5Simple(EMU3p5SimpleModel):
         return tokenizer
 
     def _load_llm(self, model_path: str, **kwargs) -> LlamaForCausalLM:
-        """Load Llama base model."""
+        """Force eval mode at load to disable dropout for deterministic eval."""
         return LlamaForCausalLM.from_pretrained(model_path, **kwargs).eval()
 
     @property
     def image_placeholder(self) -> str:
-        """Llama uses <|image|> placeholder."""
+        """Sentinel the EMU3.5 processor replaces with encoded vision tokens."""
         return "<|image|>"

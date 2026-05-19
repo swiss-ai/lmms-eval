@@ -147,8 +147,7 @@ class EMU3(EMU3EncoderBaseModel):
             # wrapped vision tokens and naturally handles text-only samples
             # (zero placeholders + empty image list).
             batch_data = []
-            chunk_size = len(chat_messages)
-            chunk_results = [None] * chunk_size
+            chunk_results = [None] * len(chat_messages)
             batch_to_chunk_idx = []
 
             chat_template = self.processor.chat_template

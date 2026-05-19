@@ -112,8 +112,7 @@ class EMUSimpleModelMixin:
             prompts = []
             images_list = []
             batch_contexts = []
-            chunk_size = len(contexts)
-            chunk_results = [None] * chunk_size
+            chunk_results = [None] * len(contexts)
             batch_to_chunk_idx = []
 
             for idx, (context, visual_list) in enumerate(zip(contexts, visuals)):

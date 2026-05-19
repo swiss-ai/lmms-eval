@@ -125,8 +125,7 @@ class EMUChatModelMixin:
 
             # Extract media and prepare batch
             batch_data = []
-            chunk_size = len(chat_messages)
-            chunk_results = [None] * chunk_size
+            chunk_results = [None] * len(chat_messages)
             batch_to_chunk_idx = []
 
             for idx, chat_message in enumerate(chat_messages):
