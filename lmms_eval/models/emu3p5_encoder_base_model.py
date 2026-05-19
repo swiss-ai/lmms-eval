@@ -29,7 +29,7 @@ _emu35_src_path = _repo_root / "external" / "Emu3.5" / "src"
 _emu35_modeling_file = _emu35_src_path / "emu3p5" / "modeling_emu3.py"
 
 if not _emu35_modeling_file.exists():
-    eval_logger.error(f"Emu3.5 submodule is not initialized in. {_repo_root / "external" / "Emu3.5"}. Please run the following commands:\n" f"  cd {_repo_root}\n" "  git submodule update --init --recursive external/Emu3.5\n")
+    eval_logger.error(f"Emu3.5 submodule is not initialized in. {_repo_root / 'external' / 'Emu3.5'}. Please run the following commands:\n" f"  cd {_repo_root}\n" "  git submodule update --init --recursive external/Emu3.5\n")
     sys.exit(1)
 
 # Add external Emu3.5 to path

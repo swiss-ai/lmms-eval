@@ -22,9 +22,6 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 import torch
-
-# Import Emu3.5 classes (sys.path set up by EMU3p5EncoderBaseModel import above)
-from emu3p5 import Emu3Config, Emu3ForCausalLM
 from loguru import logger as eval_logger
 from PIL import Image
 from tqdm import tqdm
@@ -32,15 +29,22 @@ from tqdm import tqdm
 from lmms_eval import utils
 from lmms_eval.api.instance import Instance
 from lmms_eval.api.registry import register_model
-from lmms_eval.models.emu3p5_encoder_base_model import (  # noqa: E402 — sets up sys.path for emu3p5
-    EMU3p5EncoderBaseModel,
-)
 from lmms_eval.models.model_utils.debug_utils import log_debug_sample
 from lmms_eval.models.model_utils.emu3p5.download_utils import ensure_local_weights
 from lmms_eval.models.model_utils.emu3p5.emu3p5_tokenizer_loader import (
     load_emu3p5_tokenizer,
 )
 from lmms_eval.protocol import ChatMessages
+
+# isort: off
+# Order matters: importing EMU3p5EncoderBaseModel inserts external/Emu3.5/src
+# into sys.path, which must happen BEFORE `from emu3p5 import ...` can resolve.
+# Keep this block last; do not let isort/black reorder these two imports.
+from lmms_eval.models.emu3p5_encoder_base_model import EMU3p5EncoderBaseModel
+
+from emu3p5 import Emu3Config, Emu3ForCausalLM  # noqa: E402
+
+# isort: on
 
 # Path to EMU3.5 tokenizer directory
 _current_file = Path(__file__).resolve()
