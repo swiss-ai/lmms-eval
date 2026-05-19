@@ -1,18 +1,9 @@
 import re
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import yaml
+from lmms_eval.tasks._task_utils.default_template_yaml import load_default_template_yaml
 
-with open(Path(__file__).parent / "_default_template_yaml", "r") as f:
-    raw_data = f.readlines()
-    safe_data = []
-    for i, line in enumerate(raw_data):
-        # remove function definition since yaml load cannot handle it
-        if "!function" not in line:
-            safe_data.append(line)
-
-    config = yaml.safe_load("".join(safe_data))
+config = load_default_template_yaml(__file__)
 
 
 def _extract_answer_letter(text: str) -> str:
@@ -40,10 +31,9 @@ def blink_doc_to_text(doc: dict[str, Any], lmms_eval_specific_kwargs: Optional[d
     if lmms_eval_specific_kwargs is None:
         lmms_eval_specific_kwargs = {}
 
-    options_labels = ["A", "B", "C", "D", "E"]
-    num_options = len(doc["choices"])
-    options_current_task = ", ".join(options_labels[:num_options])
-    prompt = lmms_eval_specific_kwargs.get("pre_prompt", "").format(options_current_task) + doc["prompt"]
+    num_choices = len(doc["choices"])
+    choice_letters = ", ".join([chr(65 + i) for i in range(num_choices)])
+    prompt = lmms_eval_specific_kwargs.get("pre_prompt", "").format(choice_letters) + doc["prompt"]
     return prompt
 
 

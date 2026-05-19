@@ -20,14 +20,24 @@
 
 🏠 [الصفحة الرئيسية لـ LMMs-Lab](https://www.lmms-lab.com/) | 🤗 [مجموعات بيانات Huggingface](https://huggingface.co/lmms-lab) | <a href="https://emoji.gg/emoji/1684-discord-thread"><img src="https://cdn3.emoji.gg/emojis/1684-discord-thread.png" width="14px" height="14px" alt="Discord_Thread"></a> [discord/lmms-eval](https://discord.gg/zdkwKUqrPy)
 
-📖 [المهام المدعومة (100+)](https://github.com/EvolvingLMMs-Lab/lmms-eval/blob/main/docs/current_tasks.md) | 🌟 [النماذج المدعومة (30+)](https://github.com/EvolvingLMMs-Lab/lmms-eval/tree/main/lmms_eval/models) | 📚 [التوثيق](../README.md)
+📖 [المهام المدعومة (100+)](https://github.com/EvolvingLMMs-Lab/lmms-eval/blob/main/docs/advanced/current_tasks.md) | 🌟 [النماذج المدعومة (30+)](https://github.com/EvolvingLMMs-Lab/lmms-eval/tree/main/lmms_eval/models) | 📚 [التوثيق](../README.md)
 
 ---
 
-## الإعلانات
+## ما الجديد
 
-- [2025-10] 🚀🚀 **LMMs-Eval v0.5** متاح الآن! يقدم هذا الإصدار الرئيسي تقييم صوتي شامل، وتخزين مؤقت للاستجابات، و5 نماذج جديدة (GPT-4o Audio Preview، Gemma-3، LongViLA-R1، LLaVA-OneVision 1.5، Thyme)، وأكثر من 50 متغيرًا جديدًا للمعايير تغطي الصوت (Step2، VoiceBench، WenetSpeech)، والرؤية (CharXiv، Lemonade)، والاستدلال (CSBench، SciBench، MedQA، SuperGPQA). راجع [ملاحظات الإصدار](https://github.com/EvolvingLMMs-Lab/lmms-eval/blob/main/docs/lmms-eval-0.5.md) للتفاصيل.
-- [2025-07] 🚀🚀 أصدرنا `lmms-eval-0.4`. راجع [ملاحظات الإصدار](https://github.com/EvolvingLMMs-Lab/lmms-eval/blob/main/docs/lmms-eval-0.4.md) لمزيد من التفاصيل.
+تقييم النماذج متعددة الوسائط أصعب مما يبدو. لدينا مئات المعايير، ولكن لا توجد طريقة قياسية لتشغيلها. تختلف النتائج بين المختبرات، وتصبح المقارنات غير موثوقة. لقد عملنا على معالجة هذا الأمر - ليس من خلال جهد بطولي، بل من خلال عملية منهجية.
+
+**يناير 2026** - أدركنا أن الاستدلال المكاني والتركيبي لا يزال يمثل نقاطًا عمياء في المعايير الحالية. أضفنا [CaptionQA](https://captionqa.github.io/) و [SpatialTreeBench](https://github.com/THUNLP-MT/SpatialTreeBench) و [SiteBench](https://sitebench.github.io/) و [ViewSpatial](https://github.com/ViewSpatial/ViewSpatial). بالنسبة للفرق التي تدير خطوط أنابيب تقييم عن بعد، قدمنا خادم تقييم HTTP (#972). ولمن يحتاجون إلى دقة إحصائية، أضفنا CLT وتقدير الخطأ المعياري العنقودي (#989).
+
+**أكتوبر 2025 (v0.5)** - كان الصوت يمثل ثغرة. كان بإمكان النماذج السماع، ولكن لم تكن لدينا طريقة متسقة لاختبارها. أضاف هذا الإصدار تقييمًا صوتيًا شاملاً، وتخزينًا مؤقتًا للاستجابة من أجل الكفاءة، وأكثر من 50 متغيرًا للمعايير تغطي الصوت والرؤية والاستدلال. [ملاحظات الإصدار](https://github.com/EvolvingLMMs-Lab/lmms-eval/blob/main/docs/releases/lmms-eval-0.5.md).
+
+<details>
+<summary>فيما يلي قائمة زمنية بالمهام والنماذج والميزات الأخيرة التي أضافها مساهمونا الرائعون. </summary>
+
+- [2025-07] 🚀🚀 أصدرنا `lmms-eval-0.4`. راجع [ملاحظات الإصدار](https://github.com/EvolvingLMMs-Lab/lmms-eval/blob/main/docs/releases/lmms-eval-0.4.md) لمزيد من التفاصيل.
+
+</details>
 
 ## لماذا `lmms-eval`؟
 
@@ -95,10 +105,65 @@ bash examples/models/vllm_qwen2vl.sh
 bash examples/models/llava_onevision.sh
 ```
 
+**تقييم LLaVA-OneVision1_5**
+
+```bash
+bash examples/models/llava_onevision1_5.sh
+```
+
+**تقييم LLaMA-3.2-Vision**
+
+```bash
+bash examples/models/llama_vision.sh
+```
+
+**تقييم Qwen2-VL**
+
+```bash
+bash examples/models/qwen2_vl.sh
+bash examples/models/qwen2_5_vl.sh
+```
+
+**التقييم مع التوازي التوتري (tensor parallel) للنماذج الأكبر (llava-next-72b)**
+
+```bash
+bash examples/models/tensor_parallel.sh
+```
+
+**التقييم مع SGLang للنماذج الأكبر (llava-next-72b)**
+
+```bash
+bash examples/models/sglang.sh
+```
+
 **المزيد من المعلمات**
 
 ```bash
 python3 -m lmms_eval --help
+```
+
+**متغيرات البيئة**
+قبل تشغيل التجارب والتقييمات، نوصيك بتصدير متغيرات البيئة التالية إلى بيئتك. بعضها ضروري لتشغيل مهام معينة.
+
+```bash
+export OPENAI_API_KEY="<YOUR_API_KEY>"
+export HF_HOME="<Path to HF cache>" 
+export HF_TOKEN="<YOUR_API_KEY>"
+export HF_HUB_ENABLE_HF_TRANSFER="1"
+export REKA_API_KEY="<YOUR_API_KEY>"
+```
+
+**مشاكل البيئة الشائعة**
+
+أحيانًا قد تواجه بعض المشاكل الشائعة، على سبيل المثال خطأ متعلق بـ httpx أو protobuf. لحل هذه المشاكل، يمكنك أولاً تجربة
+
+```bash
+python3 -m pip install httpx==0.23.3;
+python3 -m pip install protobuf==3.20;
+# إذا كنت تستخدم numpy==2.x، فقد يتسبب ذلك أحيانًا في حدوث أخطاء
+python3 -m pip install numpy==1.26;
+# أحيانًا تكون sentencepiece مطلوبة ليعمل المحلل اللغوي (tokenizer)
+python3 -m pip install sentencepiece;
 ```
 
 ## إضافة نموذج ومجموعة بيانات مخصصة
@@ -120,5 +185,15 @@ lmms_eval هو تفرع من [lm-eval-harness](https://github.com/EleutherAI/lm-
       archivePrefix={arXiv},
       primaryClass={cs.CL},
       url={https://arxiv.org/abs/2407.12772}, 
+}
+
+@misc{lmms_eval2024,
+    title={LMMs-Eval: Accelerating the Development of Large Multimoal Models},
+    url={https://github.com/EvolvingLMMs-Lab/lmms-eval},
+    author={Bo Li*, Peiyuan Zhang*, Kaichen Zhang*, Fanyi Pu*, Xinrun Du, Yuhao Dong, Haotian Liu, Yuanhan Zhang, Ge Zhang, Chunyuan Li and Ziwei Liu},
+    publisher    = {Zenodo},
+    version      = {v0.1.0},
+    month={March},
+    year={2024}
 }
 ```

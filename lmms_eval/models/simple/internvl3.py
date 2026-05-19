@@ -1,4 +1,3 @@
-import logging
 from datetime import timedelta
 from typing import List, Optional, Set, Tuple
 
@@ -10,6 +9,7 @@ from accelerate import Accelerator, DistributedType
 from accelerate.state import AcceleratorState
 from accelerate.utils import InitProcessGroupKwargs
 from decord import VideoReader, cpu
+from loguru import logger as eval_logger
 from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
 from tqdm import tqdm
@@ -18,8 +18,6 @@ from transformers import AutoModel, AutoTokenizer
 from lmms_eval.api.instance import Instance
 from lmms_eval.api.model import lmms
 from lmms_eval.api.registry import register_model
-
-eval_logger = logging.getLogger("eval_logger")
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -247,6 +245,7 @@ class InternVL3(lmms):
         batch_size: str = "1",
         num_frame: int = 32,
         max_num: int = 12,
+        total_max_num: int = 64,
         use_flash_attn: bool = True,
         **kwargs,
     ):
@@ -255,6 +254,7 @@ class InternVL3(lmms):
         self.path = pretrained
         self.num_frame = num_frame
         self.max_num = max_num
+        self.total_max_num = total_max_num
 
         batch_size_int = int(batch_size)
         assert batch_size_int == 1, f"Batch size should be 1 for InternVL3, but got {batch_size_int}."
@@ -397,16 +397,45 @@ class InternVL3(lmms):
 
             visuals = [doc_to_visual(self.task_dict[task][split][doc_id])]
             visuals = self.flatten(visuals)
+
             if self.modality == "image":
                 if visuals:
-                    processed_visuals = [load_image(visual, max_num=self.max_num).to(torch.bfloat16).to(self._device) for visual in visuals]
+                    # Dynamic max_num calculation like VLMEvalKit:
+                    # max_num = max(1, min(self.max_num, self.total_max_num // image_num))
+                    image_num = len(visuals)
+                    dynamic_max_num = max(1, min(self.max_num, self.total_max_num // image_num))
+
+                    processed_visuals = [load_image(visual, max_num=dynamic_max_num).to(torch.bfloat16).to(self._device) for visual in visuals]
                     pixel_values = torch.cat(processed_visuals, dim=0)
                     num_patches_list = [v.size(0) for v in processed_visuals]
-                    image_tokens = " ".join(["<image>"] * len(processed_visuals))
-                    contexts = image_tokens + "\n" + contexts
+                    # count how many <image> tags are already in the text
+                    existing_tags = contexts.count("<image>")
+
+                    if existing_tags == 0:
+                        # Case 1: Plain text prompt (e.g., "Describe the image").
+                        # We must prepend the image tokens so the model "sees" them.
+                        image_tokens = " ".join(["<image>"] * len(processed_visuals))
+                        contexts = image_tokens + "\n" + contexts
+
+                    elif existing_tags == len(processed_visuals):
+                        # Case 2: Perfectly interleaved (e.g., "Image A <image> vs Image B <image>").
+                        # Do NOTHING. The tags are already where they need to be.
+                        pass
+
+                    else:
+                        # Case 3: Mismatch (Data error).
+                        # e.g., We have 3 images but text only has 1 <image> tag.
+                        # InternVL handles this poorly. You might want to fallback to prepending
+                        # or raising an error depending on your strictness.
+                        eval_logger.warning(f"[InternVL3] Token mismatch! Text has {existing_tags} tags but {len(processed_visuals)} images provided.")
+                        # Optional: Fallback to prepending if you suspect the tags in text are garbage
+                        eval_logger.warning("[InternVL3] Fallback: Prepending image tokens to the context.")
+                        image_tokens = " ".join(["<image>"] * len(processed_visuals))
+                        contexts = image_tokens + "\n" + contexts
                 else:
                     pixel_values = None
                     num_patches_list = None
+
                 response, _ = self.model.chat(
                     self.tokenizer,
                     pixel_values,
@@ -416,13 +445,21 @@ class InternVL3(lmms):
                     history=None,
                     return_history=True,
                 )
+
             elif self.modality == "video":
                 assert len(visuals) == 1, f"Only one video is supported, but got {len(visuals)} videos."
                 video_path = visuals[0]
-                pixel_values, num_patches_list = load_video(video_path, num_segments=self.num_frame, max_num=1)
+
+                # Dynamic max_num calculation like VLMEvalKit:
+                # For video, num_segments frames are extracted, so:
+                # max_num = max(1, min(self.max_num, self.total_max_num // num_segments))
+                dynamic_max_num = max(1, min(self.max_num, self.total_max_num // self.num_frame))
+
+                pixel_values, num_patches_list = load_video(video_path, num_segments=self.num_frame, max_num=dynamic_max_num)
                 pixel_values = pixel_values.to(torch.bfloat16).to(self._device)
                 video_prefix = "".join([f"Frame{i + 1}: <image>\n" for i in range(len(num_patches_list))])
                 question = video_prefix + contexts
+
                 response, _ = self.model.chat(
                     self.tokenizer,
                     pixel_values,
@@ -432,6 +469,7 @@ class InternVL3(lmms):
                     history=None,
                     return_history=True,
                 )
+
             res.append(response)
             pbar.update(1)
         pbar.close()
