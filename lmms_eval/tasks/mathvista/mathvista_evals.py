@@ -227,16 +227,48 @@ class MathVistaEvaluator:
         if question_type == "multi_choice" and response in choices:
             return response
 
+        if question_type == "multi_choice" and choices:
+            options = [chr(ord("A") + i) for i in range(len(choices))]
+            cleaned = response.strip()
+            # "C", "(C)", "C.", "C)" — bare letter only
+            m = re.match(r"^\(?([A-Za-z])\)?[\.\):]?\s*$", cleaned)
+            # "B. No", "A) Yes", "(C) 4πcm" — letter followed by choice text
+            if not m:
+                m = re.match(r"^\(?([A-Za-z])\)?[\.\):\s]\s*\S", cleaned)
+            if m:
+                letter = m.group(1).upper()
+                if letter in options:
+                    return choices[options.index(letter)]
+
         if answer_type == "integer":
             try:
                 extraction = int(response)
                 return str(extraction)
             except ValueError:
                 pass
+            # "4.", "9,434"
+            try:
+                extraction = int(float(response.rstrip(".").replace(",", "")))
+                return str(extraction)
+            except ValueError:
+                pass
+            # "Zero.", "Four."
+            _WORD_TO_INT = {
+                "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4,
+                "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+            }
+            word_val = _WORD_TO_INT.get(response.strip().rstrip(".").lower())
+            if word_val is not None:
+                return str(word_val)
 
         if answer_type == "float":
             try:
                 extraction = str(float(response))
+                return extraction
+            except ValueError:
+                pass
+            try:
+                extraction = str(float(response.rstrip(".").replace(",", "")))
                 return extraction
             except ValueError:
                 pass
