@@ -34,7 +34,7 @@ TASK_METRIC_PRIORITY: list[tuple[str, tuple[str, ...]]] = [
     ("cv_bench", ("cv_bench_acc",)),
     # Other locally important multi-metric benchmarks.
     ("seedbench_2_plus", ("seedbench_2_plus_all",)),
-    ("seedbench", ("seed_all",)),
+    ("seedbench", ("seed_image", "seed_all")),  # image-only headline (skip video dims)
     ("mmstar", ("average",)),
     ("mme", ("mme_perception_score",)),
     ("refcoco", ("refcoco_ACC@0.5",)),
