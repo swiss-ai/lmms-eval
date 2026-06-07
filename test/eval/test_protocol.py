@@ -4,7 +4,12 @@ Validates the unified message protocol that all chat models consume,
 including construction, media extraction, and HuggingFace format conversion.
 """
 
+import base64
+import io
+
+import numpy as np
 import pytest
+import soundfile as sf
 from PIL import Image
 from pydantic import ValidationError
 
@@ -473,6 +478,48 @@ def test_to_hf_messages_audio_content_structure():
     # Assert
     assert audio_content["type"] == "audio"
     assert audio_content["audio"] == audio_url
+
+
+def test_to_openai_messages_encodes_audio_dict_as_data_url():
+    # Arrange
+    audio = {"array": np.zeros(160, dtype=np.float32), "sampling_rate": 16000}
+    messages = _build_chat_messages(
+        [
+            {"role": "user", "content": [{"type": "audio", "url": audio}]},
+        ]
+    )
+
+    # Act
+    openai_messages = messages.to_openai_messages()
+    audio_content = openai_messages[0]["content"][0]
+
+    # Assert
+    assert audio_content["type"] == "audio_url"
+    audio_url = audio_content["audio_url"]["url"]
+    assert audio_url.startswith("data:audio/wav;base64,")
+    _, encoded_audio = audio_url.split(",", 1)
+    decoded_audio, decoded_sample_rate = sf.read(
+        io.BytesIO(base64.b64decode(encoded_audio)),
+        dtype="float32",
+    )
+    assert decoded_sample_rate == 16000
+    assert decoded_audio.shape == (160,)
+
+
+def test_to_openai_messages_rejects_audio_dict_without_sample_rate():
+    # Arrange
+    messages = _build_chat_messages(
+        [
+            {
+                "role": "user",
+                "content": [{"type": "audio", "url": {"array": np.zeros(160)}}],
+            },
+        ]
+    )
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="sampling_rate"):
+        messages.to_openai_messages()
 
 
 def test_to_hf_messages_mixed_content_in_single_message():

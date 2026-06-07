@@ -140,9 +140,7 @@ def main():
                 row.append(f"{cell[1]:.4f}" if cell else "")
             print("| " + " | ".join(row) + " |")
     else:
-        header = f"{'task':<{task_w}}  {'metric':<{metric_w}}  " + "  ".join(
-            f"{m:>{model_w}}" for m in model_names
-        )
+        header = f"{'task':<{task_w}}  {'metric':<{metric_w}}  " + "  ".join(f"{m:>{model_w}}" for m in model_names)
         print(header)
         print("-" * len(header))
         for t in tasks:
@@ -156,6 +154,7 @@ def main():
 
     if args.csv:
         import csv
+
         with open(args.csv, "w", newline="") as fh:
             w = csv.writer(fh)
             w.writerow(["task", "metric"] + model_names)
