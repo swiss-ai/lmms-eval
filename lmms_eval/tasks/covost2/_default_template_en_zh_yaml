@@ -1,5 +1,5 @@
 dataset_path: lmms-lab/covost2_en-zh
-dataset_name: en_zh
+dataset_name: default
 dataset_kwargs:
   token: True
 output_type: generate_until

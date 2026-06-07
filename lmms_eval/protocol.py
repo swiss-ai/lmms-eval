@@ -1,3 +1,5 @@
+import base64
+import io
 import os
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
@@ -12,6 +14,7 @@ from lmms_eval.models.model_utils.media_encoder import encode_image_to_base64
 VideoReader, _has_decord = optional_import("decord", "VideoReader")
 cpu, _ = optional_import("decord", "cpu")
 fetch_video, _has_qwen_vl = optional_import("qwen_vl_utils", "fetch_video")
+sf, _has_soundfile = optional_import("soundfile")
 
 
 class ChatTextContent(BaseModel):
@@ -44,6 +47,132 @@ class ChatMessage(BaseModel):
 
 class ChatMessages(BaseModel):
     messages: List[ChatMessage]
+
+    @staticmethod
+    def _coerce_audio_array(audio: Any) -> np.ndarray:
+        if hasattr(audio, "samples"):
+            audio = audio.samples
+        elif hasattr(audio, "array"):
+            audio = audio.array
+        elif hasattr(audio, "data"):
+            audio = audio.data
+        if hasattr(audio, "detach"):
+            audio = audio.detach()
+        if hasattr(audio, "cpu"):
+            audio = audio.cpu()
+        if hasattr(audio, "numpy"):
+            audio = audio.numpy()
+        audio_array = np.asarray(audio, dtype=np.float32)
+        if audio_array.ndim == 0:
+            raise ValueError("Audio content must contain at least one sample.")
+        if (
+            audio_array.ndim == 2
+            and audio_array.shape[0] <= 8
+            and audio_array.shape[1] > audio_array.shape[0]
+        ):
+            audio_array = audio_array.T
+        return audio_array
+
+    @classmethod
+    def _audio_object_to_data_url(cls, audio: Any, sampling_rate: int | None) -> str:
+        hf_encoded = getattr(audio, "_hf_encoded", None)
+        if isinstance(hf_encoded, dict):
+            encoded_bytes = hf_encoded.get("bytes")
+            if isinstance(encoded_bytes, (bytes, bytearray)):
+                audio_b64 = base64.b64encode(bytes(encoded_bytes)).decode("utf-8")
+                mime_type = cls._audio_mime_type_from_path(hf_encoded.get("path"))
+                return f"data:{mime_type};base64,{audio_b64}"
+
+        if hasattr(audio, "get_all_samples"):
+            decoded_audio = audio.get_all_samples()
+            if sampling_rate is None:
+                sampling_rate = getattr(decoded_audio, "sample_rate", None) or getattr(
+                    decoded_audio,
+                    "sampling_rate",
+                    None,
+                )
+            return cls._audio_object_to_data_url(decoded_audio, sampling_rate)
+
+        if hasattr(audio, "decode"):
+            decoded_audio = audio.decode()
+            if sampling_rate is None:
+                sampling_rate = getattr(decoded_audio, "sample_rate", None) or getattr(
+                    decoded_audio,
+                    "sampling_rate",
+                    None,
+                )
+            return cls._audio_object_to_data_url(decoded_audio, sampling_rate)
+
+        if sampling_rate is None:
+            sampling_rate = getattr(audio, "sample_rate", None) or getattr(
+                audio,
+                "sampling_rate",
+                None,
+            )
+        if sampling_rate is None:
+            raise ValueError("In-memory audio content must include a sampling rate.")
+        audio_array = cls._coerce_audio_array(audio)
+        return cls._audio_array_to_data_url(audio_array, int(sampling_rate))
+
+    @staticmethod
+    def _audio_mime_type_from_path(path: Any) -> str:
+        if not isinstance(path, str):
+            return "audio/wav"
+
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".wav":
+            return "audio/wav"
+        if ext == ".mp3":
+            return "audio/mpeg"
+        if ext == ".m4a":
+            return "audio/mp4"
+        if ext == ".aac":
+            return "audio/aac"
+        if ext in {".ogg", ".opus"}:
+            return "audio/ogg"
+        if ext == ".flac":
+            return "audio/flac"
+        return "audio/wav"
+
+    @staticmethod
+    def _audio_array_to_data_url(audio_array: np.ndarray, sampling_rate: int) -> str:
+        if sf is None:
+            raise ImportError(
+                "soundfile is required to encode in-memory audio for chat messages."
+            )
+
+        wav_buffer = io.BytesIO()
+        sf.write(wav_buffer, audio_array, sampling_rate, format="WAV")
+        audio_b64 = base64.b64encode(wav_buffer.getvalue()).decode("utf-8")
+        return f"data:audio/wav;base64,{audio_b64}"
+
+    @classmethod
+    def _audio_to_data_url(cls, audio: Any) -> str:
+        if isinstance(audio, str):
+            return audio
+
+        if isinstance(audio, dict):
+            if "array" in audio:
+                if (
+                    audio.get("sampling_rate") is None
+                    and audio.get("sample_rate") is None
+                ):
+                    raise ValueError(
+                        "Audio dicts with an 'array' must include "
+                        "'sampling_rate' or 'sample_rate'."
+                    )
+                audio_array = cls._coerce_audio_array(audio["array"])
+                sampling_rate = int(
+                    audio.get("sampling_rate") or audio.get("sample_rate")
+                )
+                return cls._audio_array_to_data_url(audio_array, sampling_rate)
+            elif isinstance(audio.get("path"), str):
+                return audio["path"]
+            elif isinstance(audio.get("url"), str):
+                return audio["url"]
+            else:
+                raise TypeError("Audio dict must contain 'array', 'path', or 'url'.")
+        return cls._audio_object_to_data_url(audio, None)
 
     def extract_media(self):
         images = []
@@ -112,9 +241,13 @@ class ChatMessages(BaseModel):
                                 "image_url": {"url": f"data:{mime_type};base64,{self.encode_image(image, encode_cache, image_format, quality)}"},
                             }
                         )
-                # TODO, audio hasn't been implemented yet
                 elif content.type == "audio":
-                    openai_message["content"].append({"type": "audio_url", "audio_url": {"url": content.url}})
+                    openai_message["content"].append(
+                        {
+                            "type": "audio_url",
+                            "audio_url": {"url": self._audio_to_data_url(content.url)},
+                        }
+                    )
             openai_messages.append(openai_message)
         return openai_messages
 
@@ -157,9 +290,13 @@ class ChatMessages(BaseModel):
                                 "image_url": {"url": f"data:{mime_type};base64,{self.encode_image(image, encode_cache, image_format, quality)}"},
                             }
                         )
-                # TODO, audio hasn't been implemented yet
                 elif content.type == "audio":
-                    openai_message["content"].append({"type": "audio_url", "audio_url": {"url": content.url}})
+                    openai_message["content"].append(
+                        {
+                            "type": "audio_url",
+                            "audio_url": {"url": self._audio_to_data_url(content.url)},
+                        }
+                    )
             openai_messages.append(openai_message)
         return openai_messages
 

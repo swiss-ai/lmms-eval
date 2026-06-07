@@ -67,6 +67,24 @@ def _expand_cache_path(path: str) -> str:
     return os.path.expanduser(os.path.expandvars(path))
 
 
+def _is_audio_visual(value: Any) -> bool:
+    if isinstance(value, dict):
+        return "array" in value and ("sampling_rate" in value or "sample_rate" in value)
+
+    type_name = type(value).__name__
+    if type_name in {"AudioDecoder", "AudioSamples"}:
+        return True
+
+    return any(
+        hasattr(value, attr)
+        for attr in ("get_all_samples", "decode", "samples")
+    ) and (
+        hasattr(value, "sample_rate")
+        or hasattr(value, "sampling_rate")
+        or type_name == "AudioDecoder"
+    )
+
+
 @lru_cache(maxsize=1)
 def _resolve_hf_datasets_cache_dir() -> str:
     """Pick a datasets cache directory that is safe for file locks."""
@@ -1785,6 +1803,8 @@ class ConfigurableMessagesTask(ConfigurableTask):
                             media_url = visual  # pass full dict as url
                         else:
                             media_url = visual.get("url") or visual.get("path") or visual
+                        if media_type == "video" and _is_audio_visual(visual):
+                            media_type = "audio"
                         content.append({"type": media_type, "url": media_url})
                     elif isinstance(visual, str):
                         ext = os.path.splitext(visual)[1].lower()
@@ -1794,6 +1814,8 @@ class ConfigurableMessagesTask(ConfigurableTask):
                             content.append({"type": "audio", "url": visual})
                         else:
                             content.append({"type": "video", "url": visual})
+                    elif _is_audio_visual(visual):
+                        content.append({"type": "audio", "url": visual})
                 content.append({"type": "text", "text": text})
                 messages[0]["content"] = content
                 return messages

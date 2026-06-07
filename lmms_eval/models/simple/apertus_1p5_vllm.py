@@ -7,3 +7,7 @@ class Apertus1p5VLLM(VLLM):
     """Apertus 1.5 vLLM wrapper with chat-template-safe tokenization."""
 
     _chat_add_special_tokens = False
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("skip_mm_profiling", True)
+        super().__init__(*args, **kwargs)
