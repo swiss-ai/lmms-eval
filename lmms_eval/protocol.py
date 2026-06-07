@@ -65,11 +65,7 @@ class ChatMessages(BaseModel):
         audio_array = np.asarray(audio, dtype=np.float32)
         if audio_array.ndim == 0:
             raise ValueError("Audio content must contain at least one sample.")
-        if (
-            audio_array.ndim == 2
-            and audio_array.shape[0] <= 8
-            and audio_array.shape[1] > audio_array.shape[0]
-        ):
+        if audio_array.ndim == 2 and audio_array.shape[0] <= 8 and audio_array.shape[1] > audio_array.shape[0]:
             audio_array = audio_array.T
         return audio_array
 
@@ -137,9 +133,7 @@ class ChatMessages(BaseModel):
     @staticmethod
     def _audio_array_to_data_url(audio_array: np.ndarray, sampling_rate: int) -> str:
         if sf is None:
-            raise ImportError(
-                "soundfile is required to encode in-memory audio for chat messages."
-            )
+            raise ImportError("soundfile is required to encode in-memory audio for chat messages.")
 
         wav_buffer = io.BytesIO()
         sf.write(wav_buffer, audio_array, sampling_rate, format="WAV")
@@ -153,18 +147,10 @@ class ChatMessages(BaseModel):
 
         if isinstance(audio, dict):
             if "array" in audio:
-                if (
-                    audio.get("sampling_rate") is None
-                    and audio.get("sample_rate") is None
-                ):
-                    raise ValueError(
-                        "Audio dicts with an 'array' must include "
-                        "'sampling_rate' or 'sample_rate'."
-                    )
+                if audio.get("sampling_rate") is None and audio.get("sample_rate") is None:
+                    raise ValueError("Audio dicts with an 'array' must include " "'sampling_rate' or 'sample_rate'.")
                 audio_array = cls._coerce_audio_array(audio["array"])
-                sampling_rate = int(
-                    audio.get("sampling_rate") or audio.get("sample_rate")
-                )
+                sampling_rate = int(audio.get("sampling_rate") or audio.get("sample_rate"))
                 return cls._audio_array_to_data_url(audio_array, sampling_rate)
             elif isinstance(audio.get("path"), str):
                 return audio["path"]
