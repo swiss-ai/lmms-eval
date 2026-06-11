@@ -239,6 +239,25 @@ lmms-eval-ui = "lmms_eval.tui.cli:main"
 Homepage = "https://lmms-lab.github.io"
 Repository = "https://github.com/EvolvingLMMs-Lab/lmms-eval"
 
+
+[tool.uv]
+# emu3 and emu3_5 pin mutually incompatible tiktoken/transformers/torch;
+# declare them exclusive so uv's universal resolution (uv sync / uv lock)
+# doesn't require a single version satisfying both.
+conflicts = [
+    [
+        { extra = "emu3" },
+        { extra = "emu3_5" },
+    ],
+]
+
+# flash-attn ships no static metadata (sdist-only, needs torch at build time);
+# declare its dependencies so uv lock doesn't have to build it.
+[[tool.uv.dependency-metadata]]
+name = "flash-attn"
+version = "2.5.7"
+requires-dist = ["torch", "einops"]
+
 [dependency-groups]
 dev = [
     "textual>=7.2.0",
