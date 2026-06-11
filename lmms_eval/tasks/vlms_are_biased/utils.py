@@ -111,7 +111,10 @@ def vlms_are_biased_aggregate_by_topic(
         accuracy = topic_correct[topic] / topic_total[topic]
         topic_accuracy[topic] = accuracy
 
-    # Add overall accuracy
+    if topic_accuracy:
+        topic_accuracy["topic_mean"] = sum(topic_accuracy.values()) / len(topic_accuracy)
+
+    # Add overall micro accuracy
     total_correct = sum(topic_correct.values())
     total = sum(topic_total.values())
     topic_accuracy["overall"] = total_correct / total if total > 0 else 0.0

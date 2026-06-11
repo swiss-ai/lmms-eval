@@ -1,34 +1,31 @@
 import io
-import zipfile
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from huggingface_hub import hf_hub_download
 from PIL import Image
 
+from lmms_eval.tasks._task_utils.zip_reader import ThreadLocalZipReader
 from lmms_eval.tasks.medevalkit.eval_utils import agg_mean  # noqa: F401
 from lmms_eval.tasks.medevalkit.eval_utils import no_image_doc_to_visual  # noqa: F401
 from lmms_eval.tasks.medevalkit.eval_utils import judge_multi_choice
 
 # ---------------------------------------------------------------------------
 # Dataset images: read directly from images_2.zip (no extraction, no inode
-# churn, no extract-race). One ZipFile handle per process.
+# churn, no extract-race). One ZipFile handle per worker thread.
 # ---------------------------------------------------------------------------
-
-_ARCHIVE: Optional[zipfile.ZipFile] = None
 
 CHOICE_LETTERS = ["A", "B", "C", "D"]
 
 
-def _get_archive() -> zipfile.ZipFile:
-    global _ARCHIVE
-    if _ARCHIVE is None:
-        zip_path = hf_hub_download(
-            repo_id="RadGenome/PMC-VQA",
-            filename="images_2.zip",
-            repo_type="dataset",
-        )
-        _ARCHIVE = zipfile.ZipFile(zip_path, "r")
-    return _ARCHIVE
+def _get_archive_path():
+    return hf_hub_download(
+        repo_id="RadGenome/PMC-VQA",
+        filename="images_2.zip",
+        repo_type="dataset",
+    )
+
+
+_IMAGE_ZIP = ThreadLocalZipReader(_get_archive_path)
 
 
 # ---------------------------------------------------------------------------
@@ -37,9 +34,8 @@ def _get_archive() -> zipfile.ZipFile:
 
 
 def pmc_vqa_doc_to_visual(doc: Dict[str, Any]):
-    archive = _get_archive()
-    with archive.open(f"figures/{doc['Figure_path']}") as fp:
-        return [Image.open(io.BytesIO(fp.read())).convert("RGB")]
+    image_bytes = _IMAGE_ZIP.read(f"figures/{doc['Figure_path']}")
+    return [Image.open(io.BytesIO(image_bytes)).convert("RGB")]
 
 
 def pmc_vqa_doc_to_text(

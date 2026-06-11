@@ -1,11 +1,11 @@
 import io
 import os
-import zipfile
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from huggingface_hub import snapshot_download
 from PIL import Image
 
+from lmms_eval.tasks._task_utils.zip_reader import ThreadLocalZipReader
 from lmms_eval.tasks.medevalkit.eval_utils import agg_mean  # noqa: F401
 from lmms_eval.tasks.medevalkit.eval_utils import no_image_doc_to_visual  # noqa: F401
 from lmms_eval.tasks.medevalkit.eval_utils import (
@@ -17,18 +17,16 @@ from lmms_eval.tasks.medevalkit.eval_utils import (
 
 # ---------------------------------------------------------------------------
 # Dataset images: read directly from imgs.zip (no extraction, no inode churn,
-# no extract-race). One ZipFile handle per process.
+# no extract-race). One ZipFile handle per worker thread.
 # ---------------------------------------------------------------------------
 
-_ARCHIVE: Optional[zipfile.ZipFile] = None
+
+def _get_archive_path():
+    cache_root = snapshot_download(repo_id="BoKelvin/SLAKE", repo_type="dataset")
+    return os.path.join(cache_root, "imgs.zip")
 
 
-def _get_archive() -> zipfile.ZipFile:
-    global _ARCHIVE
-    if _ARCHIVE is None:
-        cache_root = snapshot_download(repo_id="BoKelvin/SLAKE", repo_type="dataset")
-        _ARCHIVE = zipfile.ZipFile(os.path.join(cache_root, "imgs.zip"), "r")
-    return _ARCHIVE
+_IMAGE_ZIP = ThreadLocalZipReader(_get_archive_path)
 
 
 # ---------------------------------------------------------------------------
@@ -47,9 +45,8 @@ def slake_filter_english(dataset):
 
 
 def slake_doc_to_visual(doc: Dict[str, Any]):
-    archive = _get_archive()
-    with archive.open(f"imgs/{doc['img_name']}") as fp:
-        return [Image.open(io.BytesIO(fp.read())).convert("RGB")]
+    image_bytes = _IMAGE_ZIP.read(f"imgs/{doc['img_name']}")
+    return [Image.open(io.BytesIO(image_bytes)).convert("RGB")]
 
 
 def slake_doc_to_text(

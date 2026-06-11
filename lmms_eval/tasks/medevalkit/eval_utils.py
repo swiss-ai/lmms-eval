@@ -175,6 +175,12 @@ def judge_multi_choice(choices: List[str], answer: str, response: str) -> bool:
     response = response.strip().lower().replace("\n", "")
     split_response = response.split(".")[0]
     split_response = split_response.split(":")[-1].strip()
+    # Strip LaTeX / markdown / bracket wrappers around a candidate letter, so
+    # that "$A$", "**A**", "(A)", "<A>", `A`, "A", 'A' etc. all reduce to "a"
+    # before the alpha-match check below. The prompt template literally
+    # contains "Answer: $LETTER" as a placeholder; LaTeX-trained models
+    # interpret the $-signs as math-mode delimiters and emit `Answer: $A$`.
+    split_response = split_response.strip("$*`()[]{}\"'<>")
     answer = answer.strip().lower()
 
     if len(split_response) > 300:

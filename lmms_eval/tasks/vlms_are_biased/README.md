@@ -23,7 +23,7 @@ The benchmark covers 7 domains:
 
 - **accuracy**: Overall accuracy - how often the model produces the correct answer (matches `ground_truth`)
 - **bias_ratio**: Bias measure - how often the model produces the biased answer (matches `expected_bias`). Lower is better!
-- **accuracy_by_topic**: Per-topic accuracy breakdown (logos, animals, optical illusions, etc.)
+- **accuracy_by_topic**: Per-topic accuracy breakdown (logos, animals, optical illusions, etc.) with `topic_mean` as the macro-average across topics.
 
 ## Usage
 
