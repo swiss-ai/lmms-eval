@@ -75,14 +75,7 @@ def _is_audio_visual(value: Any) -> bool:
     if type_name in {"AudioDecoder", "AudioSamples"}:
         return True
 
-    return any(
-        hasattr(value, attr)
-        for attr in ("get_all_samples", "decode", "samples")
-    ) and (
-        hasattr(value, "sample_rate")
-        or hasattr(value, "sampling_rate")
-        or type_name == "AudioDecoder"
-    )
+    return any(hasattr(value, attr) for attr in ("get_all_samples", "decode", "samples")) and (hasattr(value, "sample_rate") or hasattr(value, "sampling_rate") or type_name == "AudioDecoder")
 
 
 @lru_cache(maxsize=1)

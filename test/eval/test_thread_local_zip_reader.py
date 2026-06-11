@@ -6,10 +6,7 @@ from lmms_eval.tasks._task_utils.zip_reader import ThreadLocalZipReader
 
 def test_thread_local_zip_reader_supports_concurrent_reads(tmp_path):
     zip_path = tmp_path / "images.zip"
-    payloads = {
-        f"images/{idx:03d}.txt": (f"payload-{idx}-" * 2048).encode()
-        for idx in range(12)
-    }
+    payloads = {f"images/{idx:03d}.txt": (f"payload-{idx}-" * 2048).encode() for idx in range(12)}
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name, payload in payloads.items():

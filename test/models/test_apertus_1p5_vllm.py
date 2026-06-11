@@ -45,7 +45,11 @@ class TestApertus1p5VLLM(unittest.TestCase):
         self.assertEqual(model._chat_tokenization_kwargs(), {})
 
     def test_registry_exposes_apertus_vllm_wrapper(self):
-        from lmms_eval.models import AVAILABLE_CHAT_TEMPLATE_MODELS, AVAILABLE_SIMPLE_MODELS, get_model
+        from lmms_eval.models import (
+            AVAILABLE_CHAT_TEMPLATE_MODELS,
+            AVAILABLE_SIMPLE_MODELS,
+            get_model,
+        )
 
         self.assertEqual(AVAILABLE_SIMPLE_MODELS["apertus_1p5_vllm"], "Apertus1p5VLLM")
         self.assertEqual(AVAILABLE_CHAT_TEMPLATE_MODELS["apertus_1p5_vllm"], "Apertus1p5VLLM")

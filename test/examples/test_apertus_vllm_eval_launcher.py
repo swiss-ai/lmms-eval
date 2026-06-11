@@ -3,7 +3,6 @@ import os
 import subprocess
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EVAL_SH = REPO_ROOT / "examples" / "apertus-vllm" / "scripts" / "eval.sh"
 SUMMARY_SCRIPT = REPO_ROOT / "examples" / "apertus-vllm" / "scripts" / "summarize_results.py"

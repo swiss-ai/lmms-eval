@@ -3,7 +3,6 @@ from pathlib import Path
 from lmms_eval import utils as lmms_utils
 from lmms_eval.tasks.healthbench import utils
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
