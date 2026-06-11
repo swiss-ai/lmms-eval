@@ -226,7 +226,10 @@ class EvaluationTracker:
                 path.mkdir(parents=True, exist_ok=True)
 
                 self.date_id = datetime_str.replace(":", "-")
-                file_results_aggregated = path.joinpath(f"{self.date_id}_results.json")
+                task_names = sorted(results.get("results", {}))
+                task_slug = "_".join(task_names[:3]) if task_names else ""
+                slug_prefix = f"{task_slug}_" if task_slug else ""
+                file_results_aggregated = path.joinpath(f"{self.date_id}_{slug_prefix}results.json")
                 file_results_aggregated.open("w", encoding="utf-8").write(dumped)
 
                 if self.api and self.push_results_to_hub:
@@ -239,10 +242,10 @@ class EvaluationTracker:
                     )
                     self.api.upload_file(
                         repo_id=repo_id,
-                        path_or_fileobj=str(path.joinpath(f"{self.date_id}_results.json")),
+                        path_or_fileobj=str(file_results_aggregated),
                         path_in_repo=os.path.join(
                             self.general_config_tracker.model_name,
-                            f"{self.date_id}_results.json",
+                            file_results_aggregated.name,
                         ),
                         repo_type="dataset",
                         commit_message=f"Adding aggregated results for {self.general_config_tracker.model_name}",
