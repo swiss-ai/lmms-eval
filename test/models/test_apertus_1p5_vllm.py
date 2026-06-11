@@ -8,6 +8,11 @@ class _NewVLLMClient:
         return []
 
 
+class _ThinkingVLLMClient:
+    def chat(self, messages, sampling_params=None, chat_template_kwargs=None, tokenization_kwargs=None):
+        return []
+
+
 class _OldVLLMClient:
     def chat(self, messages, sampling_params=None):
         return []
@@ -57,6 +62,27 @@ class TestApertus1p5VLLM(unittest.TestCase):
             model._chat_tokenization_kwargs(),
             {"tokenization_kwargs": {"add_special_tokens": False}},
         )
+
+    def test_apertus_vllm_forwards_enable_thinking_when_supported(self):
+        from lmms_eval.models.simple.apertus_1p5_vllm import Apertus1p5VLLM
+
+        model = Apertus1p5VLLM.__new__(Apertus1p5VLLM)
+        model.client = _ThinkingVLLMClient()
+        model.enable_thinking = True
+
+        self.assertEqual(
+            model._chat_template_kwargs(),
+            {"chat_template_kwargs": {"enable_thinking": True}},
+        )
+
+    def test_apertus_vllm_leaves_old_chat_template_signatures_unchanged(self):
+        from lmms_eval.models.simple.apertus_1p5_vllm import Apertus1p5VLLM
+
+        model = Apertus1p5VLLM.__new__(Apertus1p5VLLM)
+        model.client = _OldVLLMClient()
+        model.enable_thinking = True
+
+        self.assertEqual(model._chat_template_kwargs(), {})
 
 
 if __name__ == "__main__":

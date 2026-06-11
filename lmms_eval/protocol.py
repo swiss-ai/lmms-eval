@@ -209,38 +209,38 @@ class ChatMessages(BaseModel):
             hf_messages.append(hf_message)
         return hf_messages
 
+    @staticmethod
+    def _encode_settings() -> Tuple[str, str, Optional[int]]:
+        image_format = os.getenv("LMMS_IMAGE_ENCODE_FORMAT", "PNG").upper()
+        mime_type = f"image/{'jpeg' if image_format == 'JPG' else image_format.lower()}"
+        quality = int(os.getenv("LMMS_IMAGE_JPEG_QUALITY", "85")) if image_format in {"JPEG", "JPG", "WEBP"} else None
+        return image_format, mime_type, quality
+
+    def _image_url_entry(self, image: Union[Image.Image, str], image_format: str, mime_type: str, quality: Optional[int]) -> Dict[str, Any]:
+        return {
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime_type};base64,{self.encode_image(image, image_format, quality)}"},
+        }
+
     def to_openai_messages(self, video_kwargs: Optional[Dict[str, str]] = None):
         if video_kwargs is None:
             video_kwargs = {}
         openai_messages = []
-        encode_cache: Dict[Tuple[object, ...], str] = {}
-        image_format = os.getenv("LMMS_IMAGE_ENCODE_FORMAT", "PNG").upper()
-        mime_type = f"image/{'jpeg' if image_format == 'JPG' else image_format.lower()}"
-        quality = int(os.getenv("LMMS_IMAGE_JPEG_QUALITY", "85")) if image_format in {"JPEG", "JPG", "WEBP"} else None
+        image_format, mime_type, quality = self._encode_settings()
         for message in self.messages:
             openai_message = {"role": message.role, "content": []}
             for content in message.content:
                 if content.type == "text":
                     openai_message["content"].append({"type": "text", "text": content.text})
                 elif content.type == "image":
-                    openai_message["content"].append(
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime_type};base64,{self.encode_image(content.url, encode_cache, image_format, quality)}"},
-                        }
-                    )
+                    openai_message["content"].append(self._image_url_entry(content.url, image_format, mime_type, quality))
                 elif content.type == "video":
                     if fetch_video is None:
                         raise ImportError("qwen_vl_utils is required for video processing. Please install it with: pip install qwen-vl-utils")
                     video_input = fetch_video({"type": "video", "video": content.url, **video_kwargs})
                     for frame in video_input:
                         image = Image.fromarray(frame.permute(1, 2, 0).numpy().astype(np.uint8))
-                        openai_message["content"].append(
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:{mime_type};base64,{self.encode_image(image, encode_cache, image_format, quality)}"},
-                            }
-                        )
+                        openai_message["content"].append(self._image_url_entry(image, image_format, mime_type, quality))
                 elif content.type == "audio":
                     openai_message["content"].append(
                         {
@@ -255,22 +255,14 @@ class ChatMessages(BaseModel):
         if video_kwargs is None:
             video_kwargs = {}
         openai_messages = []
-        encode_cache: Dict[Tuple[object, ...], str] = {}
-        image_format = os.getenv("LMMS_IMAGE_ENCODE_FORMAT", "PNG").upper()
-        mime_type = f"image/{'jpeg' if image_format == 'JPG' else image_format.lower()}"
-        quality = int(os.getenv("LMMS_IMAGE_JPEG_QUALITY", "85")) if image_format in {"JPEG", "JPG", "WEBP"} else None
+        image_format, mime_type, quality = self._encode_settings()
         for message in self.messages:
             openai_message = {"role": message.role, "content": []}
             for content in message.content:
                 if content.type == "text":
                     openai_message["content"].append({"type": "text", "text": content.text})
                 elif content.type == "image":
-                    openai_message["content"].append(
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime_type};base64,{self.encode_image(content.url, encode_cache, image_format, quality)}"},
-                        }
-                    )
+                    openai_message["content"].append(self._image_url_entry(content.url, image_format, mime_type, quality))
                 elif content.type == "video":
                     if fetch_video is None:
                         raise ImportError("qwen_vl_utils is required for video processing. Please install it with: pip install qwen-vl-utils")
@@ -284,12 +276,7 @@ class ChatMessages(BaseModel):
                     for frame, timestamp in zip(frames, timestamps):
                         image = Image.fromarray(frame.permute(1, 2, 0).numpy().astype(np.uint8))
                         openai_message["content"].append({"type": "text", "text": f"<{timestamp:.1f} seconds>"})
-                        openai_message["content"].append(
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:{mime_type};base64,{self.encode_image(image, encode_cache, image_format, quality)}"},
-                            }
-                        )
+                        openai_message["content"].append(self._image_url_entry(image, image_format, mime_type, quality))
                 elif content.type == "audio":
                     openai_message["content"].append(
                         {
@@ -316,7 +303,6 @@ class ChatMessages(BaseModel):
     def encode_image(
         self,
         image: Union[Image.Image, str],
-        cache: Optional[Dict[Tuple[object, ...], str]] = None,
         image_format: str = "PNG",
         quality: Optional[int] = None,
     ):
@@ -327,6 +313,5 @@ class ChatMessages(BaseModel):
             convert_rgb=normalized_image_format in {"JPEG", "JPG", "WEBP"},
             quality=quality,
             copy_if_pil=False,
-            cache=cache,
             use_path_cache=True,
         )
