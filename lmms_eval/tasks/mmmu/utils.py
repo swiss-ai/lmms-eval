@@ -166,10 +166,15 @@ def mmmu_process_results(doc, results):
             index2ans, all_choices = get_multi_choice_info(ast.literal_eval(doc["options"]))
             parsed_pred = parse_multi_choice_response(pred, all_choices, index2ans)
         else:
+            # eval_open expects the full normalized candidate list (with
+            # floats intact); stringifying the first candidate makes eval_open
+            # iterate characters and no open answer can ever score correct.
             parsed_pred = parse_open_response(pred)
-            parsed_pred = str(parsed_pred[0]) if parsed_pred else ""
         parsed_preds.append(parsed_pred)
-    mmmu_submission = {doc["id"]: parsed_preds[0]}
+    submission_pred = parsed_preds[0]
+    if isinstance(submission_pred, list):
+        submission_pred = str(submission_pred[0]) if submission_pred else ""
+    mmmu_submission = {doc["id"]: submission_pred}
     mmmu_exact_acc = {"id": doc["id"], "subdomain": extract_subset_name(doc["id"]), "question_type": doc["question_type"], "answer": doc["answer"], "parsed_pred": parsed_preds}
     return {"mmmu_acc": mmmu_exact_acc, "mmmu_acc_pass_at_k": mmmu_exact_acc, "submission": mmmu_submission}
 

@@ -18,25 +18,16 @@ def screenspot_rec_doc_to_text(doc):
 
 def parse_float_sequence_within(input_str):
     """
-    Extract the first sequence of four floating-point numbers within square brackets from a string.
+    Extract the first sequence of four floats wrapped in matching [] or () delimiters.
 
-    Args:
-    input_str (str): A string that may contain a sequence of four floats within square brackets.
-
-    Returns:
-    list: A list of four floats if the pattern is found, or a list of four zeros if the pattern is not found.
+    The prompt only shows parens (e.g. "(top-left x, ...)"), so models frequently
+    emit "(0.50, 0.00, 0.55, 0.05)"; accept either delimiter to honour the prompt
+    contract instead of silently zeroing out every prediction.
     """
-    # Define the regex pattern to find the first instance of four floats within square brackets
-    pattern = r"\[\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\s*\]"
-
-    # Use re.search to find the first match of the pattern in the input string
+    pattern = r"[\[\(]\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*[\]\)]"
     match = re.search(pattern, input_str)
-
-    # If a match is found, convert the captured groups into a list of floats
     if match:
         return [float(match.group(i)) for i in range(1, 5)]
-
-    # If the input does not contain the pattern, return the null float sequence
     return [0, 0, 0, 0]
 
 
