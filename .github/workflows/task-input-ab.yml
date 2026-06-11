@@ -19,6 +19,11 @@ jobs:
   compare-task-input-boundary:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # Judge providers are constructed at task-import time; a placeholder key
+      # keeps base and head revisions importable. The judge is never invoked
+      # during input capture.
+      OPENAI_API_KEY: ci-placeholder-key
     steps:
       - name: Checkout head
         uses: actions/checkout@v4
