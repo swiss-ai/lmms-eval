@@ -159,11 +159,7 @@ def fleurs_doc_to_text(doc, lmms_eval_specific_kwargs):
     post_prompt = lmms_eval_specific_kwargs["post_prompt"]
     lan = _FLEURS_LANG_TO_ID[doc["language"]]
     prompt_language = PROMPT_LANGUAGE_NAMES.get(lan, doc["language"])
-    prompt = (
-        "Transcribe the spoken audio exactly. "
-        f"Output only the transcript in {prompt_language}. "
-        "Do not translate, explain, repeat, or add any extra text:"
-    )
+    prompt = "Transcribe the spoken audio exactly. " f"Output only the transcript in {prompt_language}. " "Do not translate, explain, repeat, or add any extra text:"
     return f"{pre_prompt}{prompt}{post_prompt}"
 
 
