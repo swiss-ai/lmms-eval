@@ -1,0 +1,3 @@
+dataset_name: cmn_hans_cn
+include: _default_template_cer_yaml
+task: google_fleurs_cmn_hans_cn
