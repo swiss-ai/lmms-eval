@@ -1,0 +1,3 @@
+dataset_name: ca_es
+include: _default_template_val_yaml
+task: fleurs_ca_es_val

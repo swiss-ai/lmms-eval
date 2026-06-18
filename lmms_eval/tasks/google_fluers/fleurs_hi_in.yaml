@@ -1,0 +1,3 @@
+dataset_name: hi_in
+include: _default_template_yaml
+task: fleurs_hi_in

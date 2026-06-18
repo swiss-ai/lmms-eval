@@ -1,0 +1,3 @@
+dataset_name: es_419
+include: _default_template_yaml
+task: fleurs_es_419
