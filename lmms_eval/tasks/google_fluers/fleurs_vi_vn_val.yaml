@@ -1,0 +1,3 @@
+dataset_name: vi_vn
+include: _default_template_val_yaml
+task: fleurs_vi_vn_val
