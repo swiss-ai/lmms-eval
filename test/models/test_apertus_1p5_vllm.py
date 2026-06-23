@@ -88,6 +88,24 @@ class TestApertus1p5VLLM(unittest.TestCase):
 
         self.assertEqual(model._chat_template_kwargs(), {})
 
+    def test_strip_thinking_extracts_committed_answer(self):
+        from lmms_eval.models.chat.apertus_1p5_vllm import Apertus1p5VLLM
+
+        strip = Apertus1p5VLLM._strip_thinking
+        # Closed deliberation: the committed answer follows the suffix.
+        self.assertEqual(strip("<|inner_prefix|>count: 1,2,3<|inner_suffix|>10"), "10")
+        # Unclosed deliberation (ran out of budget mid-thought): no committed
+        # answer, so the raw chain-of-thought must not leak to the scorer.
+        self.assertEqual(strip("<|inner_prefix|>a long ramble that never finishes"), "")
+        # Direct answer with no deliberation passes through.
+        self.assertEqual(strip("10"), "10")
+        # Last suffix wins and trailing special tokens are stripped.
+        self.assertEqual(strip("<|inner_prefix|>r<|inner_suffix|>C.<|assistant_end|>"), "C.")
+        # A reopened-but-unclosed block after the answer must not leak back in.
+        self.assertEqual(strip("<|inner_prefix|>r<|inner_suffix|>10<|inner_prefix|>wait 5 6"), "10")
+        # A bounding-box answer survives intact.
+        self.assertEqual(strip("<|inner_prefix|>r<|inner_suffix|>[0.1, 0.2, 0.3, 0.4]"), "[0.1, 0.2, 0.3, 0.4]")
+
 
 if __name__ == "__main__":
     unittest.main()
