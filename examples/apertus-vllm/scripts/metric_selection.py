@@ -36,7 +36,6 @@ TASK_METRIC_PRIORITY: list[tuple[str, tuple[str, ...]]] = [
     ("seedbench_2_plus", ("seedbench_2_plus_all",)),
     ("seedbench", ("seed_image", "seed_all")),  # image-only headline (skip video dims)
     ("mmstar", ("average",)),
-    ("mme", ("mme_perception_score",)),
     ("refcoco", ("refcoco_ACC@0.5",)),
     ("vstar", ("vstar_overall_acc",)),
     ("mmvp", ("mmvp_accuracy",)),
@@ -50,9 +49,9 @@ ADDITIONAL_TASK_METRICS: dict[str, tuple[tuple[str, str], ...]] = {
     # Multi-headline benchmarks: the primary metric comes from
     # TASK_METRIC_PRIORITY (pick_headline_metric); these are the *second*
     # headline reported alongside it via iter_headline_metrics.
-    #   mme   -> perception (primary) + cognition (here)
+    #   mme   -> total (primary) + perception/cognition breakdown (here)
     #   mmvp  -> per-question accuracy (primary) + pair accuracy (here)
-    "mme": (("mme_cognition", "mme_cognition_score"),),
+    "mme": (("mme_perception", "mme_perception_score"), ("mme_cognition", "mme_cognition_score")),
     "mmvp": (("mmvp_pair", "mmvp_pair_accuracy"),),
 }
 
@@ -119,6 +118,18 @@ def pick_headline_metric(task: str, metrics: dict[str, Any]) -> tuple[str | None
     """
     task_lower = task.lower()
 
+    # MME headline = full score (perception + cognition). A perception-only
+    # headline drops the reasoning half and undersells thinking checkpoints.
+    if task_lower == "mme":
+        perception = _numeric_metric(metrics, "mme_perception_score")
+        cognition = _numeric_metric(metrics, "mme_cognition_score")
+        if perception is not None and cognition is not None:
+            return "mme_total_score", perception[1] + cognition[1]
+        if perception is not None:
+            return perception
+        if cognition is not None:
+            return cognition
+
     for task_pattern, preferred_metrics in TASK_METRIC_PRIORITY:
         if task_pattern not in task_lower:
             continue
@@ -165,6 +176,8 @@ def iter_headline_metrics(task: str, metrics: dict[str, Any]) -> list[tuple[str,
 
 def normalize_score(metric: str, value: float) -> float | None:
     lowered = metric.lower()
+    if "mme_total" in lowered:
+        return value / 2800.0
     if "mme_perception" in lowered:
         return value / 2000.0
     if "mme_cognition" in lowered:
