@@ -113,3 +113,8 @@ Bagel/
 MMaDA/
 .codex
 lmms_eval/tasks/hd_epic/hd_epic_questions.jsonl
+
+# SLURM/driver core dumps and scratch artifacts
+core_nid*
+.tmp/
+examples/apertus-vllm/path_mmu_dataset_cache/
