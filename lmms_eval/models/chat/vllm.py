@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple
 
 from tqdm import tqdm
 
-from lmms_eval.api.instance import GenerationResult, Instance
+from lmms_eval.api.instance import GenerationResult, Instance, TokenCounts
 from lmms_eval.api.registry import register_model
 from lmms_eval.imports import optional_import
 from lmms_eval.models.model_utils.gen_metrics import log_metrics
@@ -99,7 +99,7 @@ class VLLM(VLLMSimple):
 
             start_time = time.time()
 
-            def _run_chat(pairs: list[tuple]) -> list[str]:
+            def _run_chat(pairs: list[tuple]) -> list[tuple]:
                 response = self.client.chat(
                     sampling_params=[SamplingParams(**params) for _, params in pairs],
                     messages=[messages for messages, _ in pairs],
@@ -107,16 +107,16 @@ class VLLM(VLLMSimple):
                     **self._chat_template_kwargs(),
                     **self._chat_tokenization_kwargs(),
                 )
-                return [o.outputs[0].text for o in response]
+                return [(o.outputs[0].text, len(o.outputs[0].token_ids)) for o in response]
 
-            response_text = self._run_tp_synced(batched_pairs, _run_chat)
+            chat_outputs = self._run_tp_synced(batched_pairs, _run_chat)
             end_time = time.time()
 
             # Calculate timing metrics for batch
             total_elapsed_time += end_time - start_time
 
-            assert len(response_text) == len(batch_requests)
-            res.extend([GenerationResult(text=resp_text, token_counts=None) for resp_text in response_text])
+            assert len(chat_outputs) == len(batch_requests)
+            res.extend(GenerationResult(text=text, token_counts=TokenCounts(output_tokens=n_out)) for text, n_out in chat_outputs)
             pbar.update(len(batch_requests))
 
         if not self.disable_log_stats:
