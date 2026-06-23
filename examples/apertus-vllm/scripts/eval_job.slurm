@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account=infra01
 #SBATCH --job-name=apertus-eval
-#SBATCH --environment=/capstor/store/cscs/swissai/infra01/multimodal-eval/apertus-lmms-eval/lmms-eval/examples/apertus-vllm/apertus-vllm-lmms-eval-prod.toml
+#SBATCH --environment=/iopsstor/scratch/cscs/xyixuan/apertus/lmms-eval/examples/apertus-vllm/apertus-vllm-lmms-eval-iopsstor.toml
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --reservation=SD-69241-apertus-1-5-0
@@ -25,8 +25,7 @@
 #     --tokenizer-path /capstor/.../tokenizer/apertus_emu3.5_wavtok_instruct_thinking_token_fixed \
 #     --chat-template /capstor/.../tokenizer/apertus_emu3.5_wavtok_instruct_thinking_token_fixed/chat_template.jinja \
 #     --tasks mmmu_val \
-#     --image-token-cache-dir /capstor/.../benchmark/image_token_cache/mmmu_val \
-#     --image-token-cache-local-copy 0
+#     --image-token-cache-dir /capstor/.../benchmark/image_token_cache/mmmu_val
 set -euo pipefail
 
 REPO_ROOT="/capstor/store/cscs/swissai/infra01/multimodal-eval/apertus-lmms-eval/lmms-eval/examples/apertus-vllm"
@@ -54,8 +53,16 @@ LMMS_EVAL_MODELS_CACHE_PATH="${LMMS_EVAL_MODELS_CACHE:-${CACHE_ROOT}/models_cach
 # Evaluation configuration
 ########################################
 TASKS="pope,gqa,vqav2_val,mmmu_test_group_img,mme,ai2d,ocrbench_v2,chartqa,docvqa,infovqa"
-BATCH_SIZE=1
+# batch_size is the request-chunk size handed to vLLM's LLM.chat per call
+# (the continuous-batching window), not a GPU memory knob — max_num_seqs /
+# max_num_batched_tokens govern memory. 1 disables continuous batching
+# (~100x slower).
+BATCH_SIZE=512
 NUM_PROCESSES=4
+# Data-parallel workers (NUM_PROCESSES) shard requests; tensor-parallel
+# (TENSOR_PARALLEL_SIZE) shards one model across GPUs. 8B fits one GPU
+# (TP=1, 4 DP workers); a 70B needs TP=4 with NUM_PROCESSES=1.
+TENSOR_PARALLEL_SIZE=1
 MAIN_PROCESS_PORT=29541
 GPU_MEMORY_UTILIZATION=0.6
 MAX_MODEL_LEN=131072
@@ -71,16 +78,17 @@ LIMIT=""
 GEN_KWARGS=""
 CHAT_TEMPLATE=""
 EXTRA_MODEL_ARGS=""
+# Empty default preserves the established eval protocol (deliberation
+# disabled): no enable_thinking kwarg is passed at all, keeping the
+# client.chat call identical to historical runs. Set true/false explicitly
+# to override.
+ENABLE_THINKING="${ENABLE_THINKING:-}"
+LAUNCHER_ARGS=""
 SEED=1234
 EVAL_SEED="${SEED}"
 ENABLE_IMAGE_TOKEN_CACHE=true
-IMAGE_TOKEN_CACHE_COLLISION_GUARD="${VLLM_APERTUS_IMAGE_TOKEN_CACHE_COLLISION_GUARD:-0}"
-IMAGE_TOKEN_CACHE_LOCAL_COPY="${VLLM_APERTUS_IMAGE_TOKEN_CACHE_LOCAL_COPY:-1}"
-IMAGE_TOKEN_CACHE_LOCAL_BASE="${VLLM_APERTUS_IMAGE_TOKEN_CACHE_LOCAL_BASE:-/tmp/${USER}/apertus_image_token_cache}"
-IMAGE_TOKEN_CACHE_PRELOAD="${VLLM_APERTUS_IMAGE_TOKEN_CACHE_PRELOAD:-1}"
 IMAGE_TOKEN_CACHE_READONLY="${VLLM_APERTUS_IMAGE_TOKEN_CACHE_READONLY:-1}"
 IMAGE_TOKEN_CACHE_WRITE_MISSES="${VLLM_APERTUS_IMAGE_TOKEN_CACHE_WRITE_MISSES:-0}"
-IMAGE_TOKEN_CACHE_LOCAL_REQUIRED_MARGIN_PCT="${VLLM_APERTUS_IMAGE_TOKEN_CACHE_LOCAL_REQUIRED_MARGIN_PCT:-10}"
 IMAGE_TOKEN_MEMORY_CACHE_SIZE="${VLLM_APERTUS_IMAGE_TOKEN_MEMORY_CACHE_SIZE:-131072}"
 IMAGE_TOKEN_SQLITE_BUSY_TIMEOUT_MS="${VLLM_APERTUS_IMAGE_TOKEN_SQLITE_BUSY_TIMEOUT_MS:-5000}"
 IMAGE_TOKEN_SQLITE_MMAP_SIZE="${VLLM_APERTUS_IMAGE_TOKEN_SQLITE_MMAP_SIZE:-1073741824}"
@@ -88,7 +96,7 @@ IMAGE_TOKEN_CACHE_DEBUG="${VLLM_APERTUS_IMAGE_TOKEN_CACHE_DEBUG:-0}"
 PREFETCH_EMU35_VISION_TOKENIZER=true
 ENABLE_WANDB=false
 WANDB_PROJECT="${WANDB_PROJECT:-lmms-eval}"
-WANDB_ENTITY="${WANDB_ENTITY:-rkreft-eth-z-rich}"
+WANDB_ENTITY="${WANDB_ENTITY:-alvor}"
 WANDB_JOB_TYPE="${WANDB_JOB_TYPE:-eval}"
 WANDB_GROUP="${WANDB_GROUP:-}"
 WANDB_RUN_NAME="${WANDB_RUN_NAME:-}"
@@ -97,6 +105,22 @@ WANDB_RESUME="${WANDB_RESUME:-allow}"
 WANDB_LOG_SAMPLES="${WANDB_LOG_SAMPLES:-false}"
 WANDB_ARGS="${WANDB_ARGS:-}"
 WANDB_API_KEY="${WANDB_API_KEY:-}"
+HEALTHBENCH_GRADER_USER="${USER:-$(id -un)}"
+HEALTHBENCH_GRADER_MODEL="${HEALTHBENCH_GRADER_MODEL:-Qwen/Qwen3-235B-A22B-Instruct-2507-${HEALTHBENCH_GRADER_USER}}"
+HEALTHBENCH_GRADER_ENDPOINT="${HEALTHBENCH_GRADER_ENDPOINT:-}"
+HEALTHBENCH_GRADER_BASE_URL="${HEALTHBENCH_GRADER_BASE_URL:-}"
+if [[ -z "${HEALTHBENCH_GRADER_BASE_URL}" && -n "${HEALTHBENCH_GRADER_ENDPOINT}" ]]; then
+  if [[ "${HEALTHBENCH_GRADER_ENDPOINT}" == http://* || "${HEALTHBENCH_GRADER_ENDPOINT}" == https://* ]]; then
+    HEALTHBENCH_GRADER_BASE_URL="${HEALTHBENCH_GRADER_ENDPOINT%/}"
+  else
+    HEALTHBENCH_GRADER_BASE_URL="http://${HEALTHBENCH_GRADER_ENDPOINT%/}"
+  fi
+  [[ "${HEALTHBENCH_GRADER_BASE_URL}" == */v1 ]] || HEALTHBENCH_GRADER_BASE_URL="${HEALTHBENCH_GRADER_BASE_URL}/v1"
+fi
+HEALTHBENCH_GRADER_API_KEY="${HEALTHBENCH_GRADER_API_KEY:-${SML_CSCS_API_KEY:-${OPENAI_API_KEY:-EMPTY}}}"
+HEALTHBENCH_GRADER_MAX_TOKENS="${HEALTHBENCH_GRADER_MAX_TOKENS:-2048}"
+HEALTHBENCH_GRADER_CONCURRENCY="${HEALTHBENCH_GRADER_CONCURRENCY:-16}"
+HEALTHBENCH_GRADER_MAX_RETRIES="${HEALTHBENCH_GRADER_MAX_RETRIES:-3}"
 
 # SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # LOCAL_REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -117,6 +141,8 @@ Options:
   --tokenizer-path <path>                Tokenizer path.
   --model-backend <name>                 lmms-eval model backend.
   --tasks <csv>                          lmms-eval task list.
+  --task-list <path>                     Task list for SLURM array mode.
+  --run-output-root <path>               Per-run output root; array tasks write under <path>/<task>.
   --output-path <path>                   Output directory.
   --log-dir <path>                       Log directory.
   --hf-home <path>                       HF_HOME path.
@@ -125,7 +151,8 @@ Options:
   --vllm-cache-root <path>               VLLM_CACHE_ROOT path.
   --models-cache <path>                  LMMS_EVAL_MODELS_CACHE path.
   --batch-size <int>                     Per-rank batch size.
-  --num-processes <int>                  Accelerate process count.
+  --num-processes <int>                  Accelerate process count (data-parallel workers).
+  --tensor-parallel-size <int>           vLLM tensor_parallel_size (model sharding). Default: 1.
   --main-process-port <int>              Accelerate main process port.
   --gpu-memory-utilization <float>       vLLM gpu_memory_utilization.
   --max-model-len <int>                  Max model length (>8192).
@@ -135,30 +162,24 @@ Options:
   --enforce-eager <true|false>           vLLM enforce_eager.
   --hf-overrides <json>                  vLLM hf_overrides JSON string.
   --gen-kwargs <kv_csv>                  lmms-eval --gen_kwargs string.
+  --launcher-args <kv_csv>               lmms-eval --launcher_args for local judge launchers.
   --seed <seed_spec>                     lmms-eval deterministic seed tuple
                                          (e.g. 0,1234,1234,1234 or single int).
   --limit <int_or_float>                 lmms-eval --limit.
   --chat-template <path_or_template>     chat template for vLLM.
   --extra-model-args <kv_csv>            Extra --model_args suffix.
+  --enable-thinking <true|false>         Pass enable_thinking to chat templates that support it.
   --offline-datasets <true|false>        Default: false.
   --enable-image-token-cache <true|false>
                                          Enable Apertus image tokenization cache.
   --image-token-cache-dir <path>         Existing directory for SQLite cache.
-  --image-token-cache-collision-guard <0|1|true|false>
-                                         Enable collision guard mode.
-  --image-token-cache-local-copy <0|1|true|false>
-                                         Copy SQLite cache to node-local storage before launch. Default: 1.
-  --image-token-cache-local-base <path>  Node-local base directory for copied image-token cache.
-                                         Default: /tmp/${USER}/apertus_image_token_cache
-  --image-token-cache-preload <0|1|true|false>
-                                         Preload SQLite entries into process-local memory cache. Default: 1.
   --image-token-cache-readonly <0|1|true|false>
                                          Open/use image-token cache as read-only during eval. Default: 1.
+                                         Readonly implies strict mode: a missing prebuilt DB fails the
+                                         first image batch (VLLM_APERTUS_IMAGE_TOKEN_CACHE_STRICT=0 to allow
+                                         uncached fallback).
   --image-token-cache-write-misses <0|1|true|false>
                                          Persist misses to SQLite during eval. Default: 0.
-  Environment override:
-    VLLM_APERTUS_IMAGE_TOKEN_CACHE_LOCAL_REQUIRED_MARGIN_PCT
-                                         Safety margin (%) for node-local free-space preflight before copying cache. Default: 10.
   --image-token-memory-cache-size <int>  In-process LRU size.
   --image-token-sqlite-busy-timeout-ms <int>
                                          SQLite busy timeout in milliseconds.
@@ -167,9 +188,11 @@ Options:
                                          Enable cache debug logs.
   --prefetch-emu35-vision-tokenizer <true|false>
                                          Prefetch BAAI/Emu3.5-VisionTokenizer once before launch.
-  --enable-wandb <true|false>            Enable W&B metric logging. Default: false (forced off in this script).
+  --enable-wandb <true|false>            Enable W&B metric logging from inside the job. Default: false.
+                                         Note: compute nodes may need proxy setup for outbound HTTPS;
+                                         the post-hoc push (push_results_to_wandb.py) is the safer path.
   --wandb-project <name>                 W&B project. Default: lmms-eval.
-  --wandb-entity <name>                  W&B entity/team. Default: rkreft-eth-z-rich.
+  --wandb-entity <name>                  W&B entity/team. Default: alvor.
   --wandb-job-type <name>                W&B job_type. Default: eval.
   --wandb-group <name>                   W&B run group.
   --wandb-run-name <name>                W&B run name. Default: model name.
@@ -178,6 +201,12 @@ Options:
   --wandb-log-samples <true|false>       Also upload eval samples to W&B. Default: false.
   --wandb-args <kv_csv>                  Extra lmms-eval --wandb_args (comma-separated key=value).
   --wandb-api-key <key>                  W&B API key. If omitted, uses WANDB_API_KEY env.
+  --healthbench-grader-model <name>      OpenAI-compatible grader model for HealthBench.
+  --healthbench-grader-base-url <url>    OpenAI-compatible grader API base URL, including /v1.
+  --healthbench-grader-api-key <key>     API key sent to the HealthBench grader endpoint.
+  --healthbench-grader-max-tokens <int>  Max tokens for one rubric grading request.
+  --healthbench-grader-concurrency <int> Per-example rubric grading concurrency.
+  --healthbench-grader-max-retries <int> Retries for malformed or failed grader responses.
   --debug-mode                           Enable debug mode (sets VLLM_APERTUS_IMAGE_TOKEN_CACHE_DEBUG=1).
   --help                                 Show this message.
 EOF
@@ -189,6 +218,9 @@ while [[ $# -gt 0 ]]; do
     --tokenizer-path) TOKENIZER_PATH="$2"; shift 2 ;;
     --model-backend) MODEL_BACKEND="$2"; shift 2 ;;
     --tasks) TASKS="$2"; shift 2 ;;
+    --task-list) TASK_LIST_FILE="$2"; shift 2 ;;
+    --run-output-root) RUN_OUTPUT_ROOT="$2"; shift 2 ;;
+    --image-token-cache-base) IMAGE_TOKEN_CACHE_BASE="$2"; shift 2 ;;
     --output-path) OUTPUT_PATH="$2"; shift 2 ;;
     --log-dir) LOG_DIR="$2"; shift 2 ;;
     --hf-home) HF_HOME_PATH="$2"; shift 2 ;;
@@ -198,6 +230,7 @@ while [[ $# -gt 0 ]]; do
     --models-cache) LMMS_EVAL_MODELS_CACHE_PATH="$2"; shift 2 ;;
     --batch-size) BATCH_SIZE="$2"; shift 2 ;;
     --num-processes) NUM_PROCESSES="$2"; shift 2 ;;
+    --tensor-parallel-size) TENSOR_PARALLEL_SIZE="$2"; shift 2 ;;
     --main-process-port) MAIN_PROCESS_PORT="$2"; shift 2 ;;
     --gpu-memory-utilization) GPU_MEMORY_UTILIZATION="$2"; shift 2 ;;
     --max-model-len) MAX_MODEL_LEN="$2"; shift 2 ;;
@@ -207,17 +240,21 @@ while [[ $# -gt 0 ]]; do
     --enforce-eager) ENFORCE_EAGER="$2"; shift 2 ;;
     --hf-overrides) HF_OVERRIDES="$2"; shift 2 ;;
     --gen-kwargs) GEN_KWARGS="$2"; shift 2 ;;
+    --launcher-args) LAUNCHER_ARGS="$2"; shift 2 ;;
     --seed) EVAL_SEED="$2"; shift 2 ;;
     --limit) LIMIT="$2"; shift 2 ;;
     --chat-template) CHAT_TEMPLATE="$2"; shift 2 ;;
     --extra-model-args) EXTRA_MODEL_ARGS="$2"; shift 2 ;;
+    --enable-thinking) ENABLE_THINKING="$2"; shift 2 ;;
     --offline-datasets) OFFLINE_DATASETS="$2"; shift 2 ;;
     --enable-image-token-cache) ENABLE_IMAGE_TOKEN_CACHE="$2"; shift 2 ;;
     --image-token-cache-dir) IMAGE_TOKEN_CACHE_DIR="$2"; shift 2 ;;
-    --image-token-cache-collision-guard) IMAGE_TOKEN_CACHE_COLLISION_GUARD="$2"; shift 2 ;;
-    --image-token-cache-local-copy) IMAGE_TOKEN_CACHE_LOCAL_COPY="$2"; shift 2 ;;
-    --image-token-cache-local-base) IMAGE_TOKEN_CACHE_LOCAL_BASE="$2"; shift 2 ;;
-    --image-token-cache-preload) IMAGE_TOKEN_CACHE_PRELOAD="$2"; shift 2 ;;
+    # Deprecated no-ops (collision guard, node-local copy, and preload were
+    # removed from the cache implementation); accepted so mixed-version
+    # orchestrators don't hard-fail.
+    --image-token-cache-collision-guard|--image-token-cache-local-copy|--image-token-cache-local-base|--image-token-cache-preload)
+      echo "Info: $1 is deprecated and ignored."
+      if [[ $# -ge 2 ]]; then shift 2; else shift; fi ;;
     --image-token-cache-readonly) IMAGE_TOKEN_CACHE_READONLY="$2"; shift 2 ;;
     --image-token-cache-write-misses) IMAGE_TOKEN_CACHE_WRITE_MISSES="$2"; shift 2 ;;
     --image-token-memory-cache-size) IMAGE_TOKEN_MEMORY_CACHE_SIZE="$2"; shift 2 ;;
@@ -225,7 +262,7 @@ while [[ $# -gt 0 ]]; do
     --image-token-sqlite-mmap-size) IMAGE_TOKEN_SQLITE_MMAP_SIZE="$2"; shift 2 ;;
     --image-token-cache-debug) IMAGE_TOKEN_CACHE_DEBUG="$2"; shift 2 ;;
     --prefetch-emu35-vision-tokenizer) PREFETCH_EMU35_VISION_TOKENIZER="$2"; shift 2 ;;
-    --enable-wandb) echo "Info: W&B is disabled in this script; ignoring --enable-wandb=$2"; shift 2 ;;
+    --enable-wandb) ENABLE_WANDB="$2"; shift 2 ;;
     --wandb-project) WANDB_PROJECT="$2"; shift 2 ;;
     --wandb-entity) WANDB_ENTITY="$2"; shift 2 ;;
     --wandb-job-type) WANDB_JOB_TYPE="$2"; shift 2 ;;
@@ -236,6 +273,12 @@ while [[ $# -gt 0 ]]; do
     --wandb-log-samples) WANDB_LOG_SAMPLES="$2"; shift 2 ;;
     --wandb-args) WANDB_ARGS="$2"; shift 2 ;;
     --wandb-api-key) WANDB_API_KEY="$2"; shift 2 ;;
+    --healthbench-grader-model) HEALTHBENCH_GRADER_MODEL="$2"; shift 2 ;;
+    --healthbench-grader-base-url) HEALTHBENCH_GRADER_BASE_URL="$2"; shift 2 ;;
+    --healthbench-grader-api-key) HEALTHBENCH_GRADER_API_KEY="$2"; shift 2 ;;
+    --healthbench-grader-max-tokens) HEALTHBENCH_GRADER_MAX_TOKENS="$2"; shift 2 ;;
+    --healthbench-grader-concurrency) HEALTHBENCH_GRADER_CONCURRENCY="$2"; shift 2 ;;
+    --healthbench-grader-max-retries) HEALTHBENCH_GRADER_MAX_RETRIES="$2"; shift 2 ;;
     --debug-mode) IMAGE_TOKEN_CACHE_DEBUG=1; shift ;;
     --help) usage; exit 0 ;;
     *)
@@ -255,6 +298,57 @@ is_true() {
   esac
 }
 
+tasks_include_healthbench() {
+  local task_csv=",${TASKS},"
+  case "${task_csv}" in
+    *,healthbench,*|*,healthbench_hard,*|*,healthbench_consensus,*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ─── Array job support ───
+# If --task-list was passed and SLURM_ARRAY_TASK_ID is set, resolve the task
+# from the list file. This enables: sbatch --array=0-N eval_job.slurm --task-list file.txt
+if [[ -n "${TASK_LIST_FILE:-}" && -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+  if [[ ! -f "${TASK_LIST_FILE}" ]]; then
+    echo "ERROR: task list not found: ${TASK_LIST_FILE}" >&2
+    exit 1
+  fi
+  TASKS="$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "${TASK_LIST_FILE}")"
+  if [[ -z "$TASKS" ]]; then
+    echo "ERROR: SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID} out of range for ${TASK_LIST_FILE}" >&2
+    exit 1
+  fi
+  if [[ -n "${RUN_OUTPUT_ROOT:-}" ]]; then
+    OUTPUT_PATH="${RUN_OUTPUT_ROOT}/${TASKS}"
+    mkdir -p "${OUTPUT_PATH}"
+  fi
+  # Resolve per-task cache dir from base. Only fill mode creates the dir:
+  # pre-creating it in readonly mode makes "dir exists" useless as a
+  # filled-vs-never-filled signal.
+  if [[ -n "${IMAGE_TOKEN_CACHE_BASE:-}" ]]; then
+    IMAGE_TOKEN_CACHE_DIR="${IMAGE_TOKEN_CACHE_BASE}/${TASKS}"
+    if ! is_true "${IMAGE_TOKEN_CACHE_READONLY}"; then
+      mkdir -p "${IMAGE_TOKEN_CACHE_DIR}"
+    fi
+  fi
+  echo "Array element ${SLURM_ARRAY_TASK_ID}: task=${TASKS}"
+fi
+
+if tasks_include_healthbench; then
+  if [[ -z "${HEALTHBENCH_GRADER_BASE_URL}" ]]; then
+    echo "ERROR: HealthBench needs a Qwen judge endpoint." >&2
+    echo "       Launch Qwen with apertus/model-launch, then set HEALTHBENCH_GRADER_ENDPOINT=host:port" >&2
+    echo "       or --healthbench-grader-base-url http://host:port/v1." >&2
+    exit 1
+  fi
+  if [[ "${HEALTHBENCH_GRADER_BASE_URL}" == https://api.swissai.svc.cscs.ch* && "${HEALTHBENCH_GRADER_API_KEY}" == "EMPTY" ]]; then
+    echo "ERROR: HealthBench via SwissAI serving requires --healthbench-grader-api-key, HEALTHBENCH_GRADER_API_KEY, or SML_CSCS_API_KEY." >&2
+    echo "       For no-key scoring, use a direct endpoint: HEALTHBENCH_GRADER_ENDPOINT=host:port." >&2
+    exit 1
+  fi
+fi
+
 # Ensure OCR-safe default generation cap.
 # If max_new_tokens is absent, append/set it to 32768.
 # If caller already set max_new_tokens, keep caller value.
@@ -272,9 +366,26 @@ export PATH="/opt/venv/bin:${PATH}"
 # Optional dev-tree override: prepend a user-local lmms-eval checkout to PYTHONPATH
 # so changes in dev are picked up without writing to the shared prod tree.
 # Usage: LMMS_EVAL_DEV_PATH=/path/to/your/lmms-eval bash scripts/eval.sh ...
+#        VLLM_DEV_PATH=/path/to/your/vllm bash scripts/eval.sh ...
 LMMS_EVAL_DEV_PATH="${LMMS_EVAL_DEV_PATH:-}"
+VLLM_DEV_PATH="${VLLM_DEV_PATH:-}"
+if [[ -n "${VLLM_DEV_PATH}" ]]; then
+  # Copy only changed .py files into the pip-installed vllm package.
+  # Cannot use PYTHONPATH override because compiled C extensions (.so) live
+  # in the installed package and won't be found from a source checkout.
+  VLLM_INSTALLED="$(python3 -c 'import vllm, pathlib; print(pathlib.Path(vllm.__file__).parent)' 2>/dev/null)"
+  if [[ -n "${VLLM_INSTALLED}" && -d "${VLLM_INSTALLED}" ]]; then
+    n=0
+    while IFS= read -r src; do
+      rel="${src#${VLLM_DEV_PATH}/vllm/}"
+      dst="${VLLM_INSTALLED}/${rel}"
+      [[ -f "${dst}" ]] && cp "${src}" "${dst}" && n=$((n+1))
+    done < <(find "${VLLM_DEV_PATH}/vllm" -name "*.py" -newer "${VLLM_INSTALLED}/__init__.py" 2>/dev/null)
+    echo "vLLM dev patch: copied ${n} file(s) from ${VLLM_DEV_PATH}"
+  fi
+fi
 if [[ -n "${LMMS_EVAL_DEV_PATH}" ]]; then
-  echo "PYTHONPATH dev-tree override: ${LMMS_EVAL_DEV_PATH}"
+  echo "PYTHONPATH lmms-eval dev-tree override: ${LMMS_EVAL_DEV_PATH}"
   export PYTHONPATH="${LMMS_EVAL_DEV_PATH}:${LMMS_EVAL_REPO}:${VLLM_REPO}${PYTHONPATH:+:${PYTHONPATH}}"
 else
   export PYTHONPATH="${LMMS_EVAL_REPO}:${VLLM_REPO}${PYTHONPATH:+:${PYTHONPATH}}"
@@ -308,7 +419,25 @@ if ! [[ "${HASH_SEED}" =~ ^[0-9]+$ ]]; then
 fi
 export PYTHONHASHSEED="${PYTHONHASHSEED:-${HASH_SEED}}"
 export VLLM_SEED="${VLLM_SEED:-${SEED}}"
-export VLLM_APERTUS_IMAGE_TOKEN_CACHE_DEBUG
+# Pin the lmms-eval image transport to lossless PNG. The image token cache is
+# keyed on decoded pixels; a lossy format (JPEG/WEBP) would change pixels and
+# silently 100%-miss every prebuilt cache.
+export LMMS_IMAGE_ENCODE_FORMAT=PNG
+if tasks_include_healthbench; then
+  if [[ "${HEALTHBENCH_GRADER_BASE_URL}" == http://* ]]; then
+    HEALTHBENCH_GRADER_HOST="${HEALTHBENCH_GRADER_BASE_URL#http://}"
+    HEALTHBENCH_GRADER_HOST="${HEALTHBENCH_GRADER_HOST%%/*}"
+    HEALTHBENCH_GRADER_HOST="${HEALTHBENCH_GRADER_HOST%%:*}"
+    export NO_PROXY="${NO_PROXY:+${NO_PROXY},}${HEALTHBENCH_GRADER_HOST}"
+    export no_proxy="${no_proxy:+${no_proxy},}${HEALTHBENCH_GRADER_HOST}"
+  fi
+  export HEALTHBENCH_GRADER_MODEL
+  export HEALTHBENCH_GRADER_BASE_URL
+  export HEALTHBENCH_GRADER_API_KEY
+  export HEALTHBENCH_GRADER_MAX_TOKENS
+  export HEALTHBENCH_GRADER_CONCURRENCY
+  export HEALTHBENCH_GRADER_MAX_RETRIES
+fi
 
 if is_true "${OFFLINE_DATASETS}"; then
   export HF_DATASETS_OFFLINE=1
@@ -317,62 +446,23 @@ else
 fi
 
 if is_true "${ENABLE_IMAGE_TOKEN_CACHE}"; then
-  SHARED_IMAGE_TOKEN_CACHE_DIR="${IMAGE_TOKEN_CACHE_DIR}"
-  LOCAL_JOB_CACHE_DIR="(not used)"
+  echo "Image-token cache dir: ${IMAGE_TOKEN_CACHE_DIR}"
 
-  echo "IMAGE_TOKEN_CACHE_LOCAL_COPY=${IMAGE_TOKEN_CACHE_LOCAL_COPY}"
-  echo "Shared image-token cache dir: ${SHARED_IMAGE_TOKEN_CACHE_DIR}"
-
-  if is_true "${IMAGE_TOKEN_CACHE_LOCAL_COPY}"; then
-    LOCAL_JOB_CACHE_DIR="${IMAGE_TOKEN_CACHE_LOCAL_BASE}/${SLURM_JOB_ID:-manual}"
-    if ! [[ "${IMAGE_TOKEN_CACHE_LOCAL_REQUIRED_MARGIN_PCT}" =~ ^[0-9]+$ ]]; then
-      echo "Warning: invalid VLLM_APERTUS_IMAGE_TOKEN_CACHE_LOCAL_REQUIRED_MARGIN_PCT=${IMAGE_TOKEN_CACHE_LOCAL_REQUIRED_MARGIN_PCT}; using 10."
-      IMAGE_TOKEN_CACHE_LOCAL_REQUIRED_MARGIN_PCT=10
+  CACHE_DB="${IMAGE_TOKEN_CACHE_DIR}/image_tokens/apertus_image_token_cache.sqlite3"
+  if is_true "${IMAGE_TOKEN_CACHE_READONLY}"; then
+    # Submit-time visibility only: text-only tasks legitimately have no DB,
+    # so the hard gate lives in the cache code (strict mode raises at the
+    # first image batch when the DB is missing).
+    if [[ ! -s "${CACHE_DB}" ]]; then
+      echo "WARNING: readonly image-token cache requested but ${CACHE_DB} is missing or empty."
+      echo "         Image-bearing tasks will FAIL at the first image batch (strict mode)."
+      echo "         Fill it first: bash eval.sh <model> --tasks ${TASKS} --mode fill"
     fi
-    mkdir -p "${LOCAL_JOB_CACHE_DIR}"
-    echo "Node-local image-token cache dir: ${LOCAL_JOB_CACHE_DIR}"
-    du -sh "${SHARED_IMAGE_TOKEN_CACHE_DIR}" || true
-    if [[ -d "${SHARED_IMAGE_TOKEN_CACHE_DIR}" ]]; then
-      LOCAL_CACHE_CHECK_PATH="${IMAGE_TOKEN_CACHE_LOCAL_BASE}"
-      if [[ ! -e "${LOCAL_CACHE_CHECK_PATH}" ]]; then
-        LOCAL_CACHE_CHECK_PATH="/tmp"
-      fi
-      SRC_CACHE_BYTES="$(du -sb "${SHARED_IMAGE_TOKEN_CACHE_DIR}" | awk '{print $1}')"
-      LOCAL_CACHE_AVAIL_BYTES="$(df -B1 --output=avail "${LOCAL_CACHE_CHECK_PATH}" | tail -n1 | tr -d '[:space:]')"
-      LOCAL_CACHE_REQUIRED_BYTES=$((SRC_CACHE_BYTES + (SRC_CACHE_BYTES * IMAGE_TOKEN_CACHE_LOCAL_REQUIRED_MARGIN_PCT / 100)))
-      echo "Local-cache preflight: source_bytes=${SRC_CACHE_BYTES} available_bytes=${LOCAL_CACHE_AVAIL_BYTES} required_bytes=${LOCAL_CACHE_REQUIRED_BYTES} margin_pct=${IMAGE_TOKEN_CACHE_LOCAL_REQUIRED_MARGIN_PCT}"
-      if (( LOCAL_CACHE_AVAIL_BYTES < LOCAL_CACHE_REQUIRED_BYTES )); then
-        echo "ERROR: insufficient local space at ${LOCAL_CACHE_CHECK_PATH} for cache copy (need ${LOCAL_CACHE_REQUIRED_BYTES} bytes, have ${LOCAL_CACHE_AVAIL_BYTES})."
-        exit 1
-      fi
-      SQLITE_FILES=()
-      while IFS= read -r sqlite_file; do
-        SQLITE_FILES+=("${sqlite_file}")
-      done < <(find "${SHARED_IMAGE_TOKEN_CACHE_DIR}" -type f -name '*.sqlite3*')
-      if [[ "${#SQLITE_FILES[@]}" -gt 0 ]]; then
-        for sqlite_file in "${SQLITE_FILES[@]}"; do
-          rel_path="${sqlite_file#${SHARED_IMAGE_TOKEN_CACHE_DIR}/}"
-          rel_dir="$(dirname "${rel_path}")"
-          mkdir -p "${LOCAL_JOB_CACHE_DIR}/${rel_dir}"
-          cp -f "${sqlite_file}" "${LOCAL_JOB_CACHE_DIR}/${rel_dir}/"
-        done
-      else
-        echo "Warning: no SQLite cache files found in ${SHARED_IMAGE_TOKEN_CACHE_DIR}; local cache starts empty."
-      fi
-    else
-      echo "Warning: shared cache directory ${SHARED_IMAGE_TOKEN_CACHE_DIR} does not exist; local cache starts empty."
-    fi
-    du -sh "${LOCAL_JOB_CACHE_DIR}" || true
-    IMAGE_TOKEN_CACHE_DIR="${LOCAL_JOB_CACHE_DIR}"
   else
-    echo "Node-local image-token cache dir: (disabled)"
+    mkdir -p "${IMAGE_TOKEN_CACHE_DIR}"
   fi
 
-  mkdir -p "${IMAGE_TOKEN_CACHE_DIR}"
-  echo "Final image-token cache dir: ${IMAGE_TOKEN_CACHE_DIR}"
   export VLLM_APERTUS_IMAGE_TOKEN_CACHE_DIR="${IMAGE_TOKEN_CACHE_DIR}"
-  export VLLM_APERTUS_IMAGE_TOKEN_CACHE_COLLISION_GUARD="${IMAGE_TOKEN_CACHE_COLLISION_GUARD}"
-  export VLLM_APERTUS_IMAGE_TOKEN_CACHE_PRELOAD="${IMAGE_TOKEN_CACHE_PRELOAD}"
   export VLLM_APERTUS_IMAGE_TOKEN_CACHE_READONLY="${IMAGE_TOKEN_CACHE_READONLY}"
   export VLLM_APERTUS_IMAGE_TOKEN_CACHE_WRITE_MISSES="${IMAGE_TOKEN_CACHE_WRITE_MISSES}"
   export VLLM_APERTUS_IMAGE_TOKEN_MEMORY_CACHE_SIZE="${IMAGE_TOKEN_MEMORY_CACHE_SIZE}"
@@ -381,8 +471,6 @@ if is_true "${ENABLE_IMAGE_TOKEN_CACHE}"; then
   export VLLM_APERTUS_IMAGE_TOKEN_CACHE_DEBUG="${IMAGE_TOKEN_CACHE_DEBUG}"
 else
   unset VLLM_APERTUS_IMAGE_TOKEN_CACHE_DIR || true
-  unset VLLM_APERTUS_IMAGE_TOKEN_CACHE_COLLISION_GUARD || true
-  unset VLLM_APERTUS_IMAGE_TOKEN_CACHE_PRELOAD || true
   unset VLLM_APERTUS_IMAGE_TOKEN_CACHE_READONLY || true
   unset VLLM_APERTUS_IMAGE_TOKEN_CACHE_WRITE_MISSES || true
   unset VLLM_APERTUS_IMAGE_TOKEN_MEMORY_CACHE_SIZE || true
@@ -433,8 +521,9 @@ PY
   fi
 fi
 
-if [[ "${NUM_GPUS}" -lt "${NUM_PROCESSES}" ]]; then
-  echo "Need at least ${NUM_PROCESSES} visible GPUs, found ${NUM_GPUS}."
+NEED_GPUS=$(( NUM_PROCESSES * TENSOR_PARALLEL_SIZE ))
+if [[ "${NUM_GPUS}" -lt "${NEED_GPUS}" ]]; then
+  echo "Need at least ${NEED_GPUS} visible GPUs (${NUM_PROCESSES} workers x TP=${TENSOR_PARALLEL_SIZE}), found ${NUM_GPUS}."
   exit 1
 fi
 
@@ -501,8 +590,13 @@ PY
   fi
 fi
 
-MODEL_ARGS="model=${MODEL_PATH},tokenizer=${TOKENIZER_PATH},tensor_parallel_size=1,gpu_memory_utilization=${GPU_MEMORY_UTILIZATION},trust_remote_code=${TRUST_REMOTE_CODE},max_model_len=${MAX_MODEL_LEN},hf_overrides=${HF_OVERRIDES}"
+MODEL_ARGS="model=${MODEL_PATH},tokenizer=${TOKENIZER_PATH},tensor_parallel_size=${TENSOR_PARALLEL_SIZE},gpu_memory_utilization=${GPU_MEMORY_UTILIZATION},trust_remote_code=${TRUST_REMOTE_CODE},max_model_len=${MAX_MODEL_LEN},hf_overrides=${HF_OVERRIDES}"
 MODEL_ARGS="${MODEL_ARGS},max_num_batched_tokens=${MAX_NUM_BATCHED_TOKENS},enable_prefix_caching=${ENABLE_PREFIX_CACHING},enforce_eager=${ENFORCE_EAGER}"
+# Only pass enable_thinking when explicitly set; an absent kwarg keeps the
+# chat-template call identical to historical (deliberation-disabled) runs.
+if [[ -n "${ENABLE_THINKING}" ]]; then
+  MODEL_ARGS="${MODEL_ARGS},enable_thinking=${ENABLE_THINKING}"
+fi
 
 if [[ -n "${CHAT_TEMPLATE}" ]]; then
   MODEL_ARGS="${MODEL_ARGS},chat_template=${CHAT_TEMPLATE}"
@@ -586,6 +680,9 @@ fi
 if [[ -n "${LIMIT}" ]]; then
   CMD+=(--limit "${LIMIT}")
 fi
+if tasks_include_healthbench && [[ -n "${LAUNCHER_ARGS}" ]]; then
+  CMD+=(--launcher_args "${LAUNCHER_ARGS}")
+fi
 if is_true "${ENABLE_WANDB}" && [[ -n "${FINAL_WANDB_ARGS}" ]]; then
   CMD+=(--wandb_args "${FINAL_WANDB_ARGS}")
   if is_true "${WANDB_LOG_SAMPLES}"; then
@@ -604,12 +701,14 @@ echo "CHAT_TEMPLATE=${CHAT_TEMPLATE:-<tokenizer default>}"
 echo "MODEL_BACKEND=${MODEL_BACKEND}"
 echo "TASKS=${TASKS}"
 echo "NUM_PROCESSES=${NUM_PROCESSES}"
+echo "TENSOR_PARALLEL_SIZE=${TENSOR_PARALLEL_SIZE}"
 echo "BATCH_SIZE=${BATCH_SIZE}"
 echo "GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION}"
 echo "MAX_MODEL_LEN=${MAX_MODEL_LEN}"
 echo "MAX_NUM_BATCHED_TOKENS=${MAX_NUM_BATCHED_TOKENS}"
 echo "TRUST_REMOTE_CODE=${TRUST_REMOTE_CODE}"
 echo "ENABLE_PREFIX_CACHING=${ENABLE_PREFIX_CACHING}"
+echo "ENABLE_THINKING=${ENABLE_THINKING}"
 echo "ENFORCE_EAGER=${ENFORCE_EAGER}"
 echo "HF_OVERRIDES=${HF_OVERRIDES}"
 echo "OFFLINE_DATASETS=${OFFLINE_DATASETS}"
@@ -624,14 +723,10 @@ fi
 echo "ENABLE_IMAGE_TOKEN_CACHE=${ENABLE_IMAGE_TOKEN_CACHE}"
 if is_true "${ENABLE_IMAGE_TOKEN_CACHE}"; then
   echo "VLLM_APERTUS_IMAGE_TOKEN_CACHE_DIR=${VLLM_APERTUS_IMAGE_TOKEN_CACHE_DIR}"
-  echo "VLLM_APERTUS_IMAGE_TOKEN_CACHE_COLLISION_GUARD=${VLLM_APERTUS_IMAGE_TOKEN_CACHE_COLLISION_GUARD}"
   echo "VLLM_APERTUS_IMAGE_TOKEN_MEMORY_CACHE_SIZE=${VLLM_APERTUS_IMAGE_TOKEN_MEMORY_CACHE_SIZE}"
   echo "VLLM_APERTUS_IMAGE_TOKEN_SQLITE_BUSY_TIMEOUT_MS=${VLLM_APERTUS_IMAGE_TOKEN_SQLITE_BUSY_TIMEOUT_MS}"
   echo "VLLM_APERTUS_IMAGE_TOKEN_SQLITE_MMAP_SIZE=${VLLM_APERTUS_IMAGE_TOKEN_SQLITE_MMAP_SIZE}"
   echo "VLLM_APERTUS_IMAGE_TOKEN_CACHE_DEBUG=${VLLM_APERTUS_IMAGE_TOKEN_CACHE_DEBUG}"
-  echo "VLLM_APERTUS_IMAGE_TOKEN_CACHE_LOCAL_COPY=${IMAGE_TOKEN_CACHE_LOCAL_COPY}"
-  echo "VLLM_APERTUS_IMAGE_TOKEN_CACHE_LOCAL_BASE=${IMAGE_TOKEN_CACHE_LOCAL_BASE}"
-  echo "VLLM_APERTUS_IMAGE_TOKEN_CACHE_PRELOAD=${VLLM_APERTUS_IMAGE_TOKEN_CACHE_PRELOAD}"
   echo "VLLM_APERTUS_IMAGE_TOKEN_CACHE_READONLY=${VLLM_APERTUS_IMAGE_TOKEN_CACHE_READONLY}"
   echo "VLLM_APERTUS_IMAGE_TOKEN_CACHE_WRITE_MISSES=${VLLM_APERTUS_IMAGE_TOKEN_CACHE_WRITE_MISSES}"
 fi
@@ -644,6 +739,12 @@ echo "OUTPUT_PATH=${OUTPUT_PATH}"
 echo "PREFETCH_EMU35_VISION_TOKENIZER=${PREFETCH_EMU35_VISION_TOKENIZER}"
 if [[ -n "${GEN_KWARGS}" ]]; then
   echo "GEN_KWARGS=${GEN_KWARGS}"
+fi
+if tasks_include_healthbench; then
+  echo "HEALTHBENCH_GRADER_MODEL=${HEALTHBENCH_GRADER_MODEL}"
+  echo "HEALTHBENCH_GRADER_BASE_URL=${HEALTHBENCH_GRADER_BASE_URL}"
+  echo "HEALTHBENCH_GRADER_CONCURRENCY=${HEALTHBENCH_GRADER_CONCURRENCY}"
+  echo "HEALTHBENCH_LAUNCHER_ARGS=${LAUNCHER_ARGS:-<none>}"
 fi
 echo "==========================================="
 
