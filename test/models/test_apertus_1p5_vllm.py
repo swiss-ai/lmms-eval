@@ -8,6 +8,11 @@ class _NewVLLMClient:
         return []
 
 
+class _ThinkingVLLMClient:
+    def chat(self, messages, sampling_params=None, chat_template_kwargs=None, tokenization_kwargs=None):
+        return []
+
+
 class _OldVLLMClient:
     def chat(self, messages, sampling_params=None):
         return []
@@ -57,6 +62,45 @@ class TestApertus1p5VLLM(unittest.TestCase):
             model._chat_tokenization_kwargs(),
             {"tokenization_kwargs": {"add_special_tokens": False}},
         )
+
+    def test_apertus_vllm_forwards_enable_thinking_when_supported(self):
+        from lmms_eval.models.simple.apertus_1p5_vllm import Apertus1p5VLLM
+
+        model = Apertus1p5VLLM.__new__(Apertus1p5VLLM)
+        model.client = _ThinkingVLLMClient()
+        model.enable_thinking = True
+
+        self.assertEqual(
+            model._chat_template_kwargs(),
+            {"chat_template_kwargs": {"enable_thinking": True}},
+        )
+
+    def test_apertus_vllm_leaves_old_chat_template_signatures_unchanged(self):
+        from lmms_eval.models.simple.apertus_1p5_vllm import Apertus1p5VLLM
+
+        model = Apertus1p5VLLM.__new__(Apertus1p5VLLM)
+        model.client = _OldVLLMClient()
+        model.enable_thinking = True
+
+        self.assertEqual(model._chat_template_kwargs(), {})
+
+    def test_strip_thinking_extracts_committed_answer(self):
+        from lmms_eval.models.chat.apertus_1p5_vllm import Apertus1p5VLLM
+
+        strip = Apertus1p5VLLM._strip_thinking
+        # Closed deliberation: the committed answer follows the suffix.
+        self.assertEqual(strip("<|inner_prefix|>count: 1,2,3<|inner_suffix|>10"), "10")
+        # Unclosed deliberation (ran out of budget mid-thought): no committed
+        # answer, so the raw chain-of-thought must not leak to the scorer.
+        self.assertEqual(strip("<|inner_prefix|>a long ramble that never finishes"), "")
+        # Direct answer with no deliberation passes through.
+        self.assertEqual(strip("10"), "10")
+        # Last suffix wins and trailing special tokens are stripped.
+        self.assertEqual(strip("<|inner_prefix|>r<|inner_suffix|>C.<|assistant_end|>"), "C.")
+        # A reopened-but-unclosed block after the answer must not leak back in.
+        self.assertEqual(strip("<|inner_prefix|>r<|inner_suffix|>10<|inner_prefix|>wait 5 6"), "10")
+        # A bounding-box answer survives intact.
+        self.assertEqual(strip("<|inner_prefix|>r<|inner_suffix|>[0.1, 0.2, 0.3, 0.4]"), "[0.1, 0.2, 0.3, 0.4]")
 
 
 if __name__ == "__main__":
