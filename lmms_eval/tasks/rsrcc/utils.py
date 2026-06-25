@@ -77,5 +77,3 @@ def rsrcc_aggregate_mcq(results):
 
 def rsrcc_aggregate_yesno(results):
     return sum(results) / len(results) if results else 0.0
-
-

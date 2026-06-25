@@ -5,6 +5,7 @@ from collections import defaultdict
 from loguru import logger as eval_logger
 from PIL import Image
 
+
 def _img_dir():
     explicit = os.environ.get("FRIEDA_IMG_DIR", "")
     if explicit:
@@ -19,6 +20,7 @@ def _img_dir():
 # Image loading
 # ---------------------------------------------------------------------------
 
+
 def frieda_doc_to_visual(doc):
     base = _img_dir()
     return [Image.open(os.path.join(base, url)).convert("RGB") for url in doc["image_urls"]]
@@ -27,6 +29,7 @@ def frieda_doc_to_visual(doc):
 # ---------------------------------------------------------------------------
 # Text / target
 # ---------------------------------------------------------------------------
+
 
 def frieda_doc_to_text(doc, lmms_eval_specific_kwargs=None):
     kwargs = lmms_eval_specific_kwargs or {}
@@ -47,6 +50,7 @@ def frieda_doc_to_target(doc):
 # Answer normalization
 # ---------------------------------------------------------------------------
 
+
 def _normalize(s: str) -> str:
     """Lowercase, collapse whitespace, strip leading/trailing punctuation."""
     s = s.lower().strip()
@@ -64,7 +68,7 @@ def _f1(pred: str, gold: str) -> float:
     if not common:
         return 0.0
     prec = len(common) / len(pred_toks)
-    rec  = len(common) / len(gold_toks)
+    rec = len(common) / len(gold_toks)
     return 2 * prec * rec / (prec + rec)
 
 
@@ -72,24 +76,26 @@ def _f1(pred: str, gold: str) -> float:
 # Process results
 # ---------------------------------------------------------------------------
 
+
 def frieda_process_results(doc, results):
-    pred  = results[0].strip()
-    gold  = doc["expected_answer"].strip()
-    em    = int(_normalize(pred) == _normalize(gold))
-    f1    = _f1(pred, gold)
+    pred = results[0].strip()
+    gold = doc["expected_answer"].strip()
+    em = int(_normalize(pred) == _normalize(gold))
+    f1 = _f1(pred, gold)
     domain = doc.get("domain", "unknown")
-    atype  = doc.get("answer_type", "unknown").replace(" ", "_")
+    atype = doc.get("answer_type", "unknown").replace(" ", "_")
     return {
         "exact_match": em,
         "f1": f1,
         "per_domain": {"domain": domain, "em": em, "f1": f1},
-        "per_type":   {"atype": atype,  "em": em, "f1": f1},
+        "per_type": {"atype": atype, "em": em, "f1": f1},
     }
 
 
 # ---------------------------------------------------------------------------
 # Aggregation
 # ---------------------------------------------------------------------------
+
 
 def frieda_exact_match(results):
     return sum(results) / len(results) if results else 0.0
@@ -109,5 +115,9 @@ def _breakdown_aggregate(results, key, score_key):
     return sum(per_group.values()) / len(per_group) if per_group else 0.0
 
 
-def frieda_per_domain_em(results): return _breakdown_aggregate(results, "domain", "em")
-def frieda_per_type_em(results):   return _breakdown_aggregate(results, "atype",  "em")
+def frieda_per_domain_em(results):
+    return _breakdown_aggregate(results, "domain", "em")
+
+
+def frieda_per_type_em(results):
+    return _breakdown_aggregate(results, "atype", "em")

@@ -9,6 +9,7 @@ from pycocoevalcap.eval import Bleu, Cider, Meteor, Rouge
 from pycocoevalcap.tokenizer.ptbtokenizer import PTBTokenizer
 from pycocotools.coco import COCO
 
+
 def _base_dir():
     return os.environ.get("GEOBENCH_DIR", "")
 
@@ -24,6 +25,7 @@ def _open_image(path_or_dict):
 # Single split — embedded images, MCQ A–E
 # ---------------------------------------------------------------------------
 
+
 def geobench_doc_to_visual(doc):
     return [_open_image(doc["image"])]
 
@@ -31,7 +33,7 @@ def geobench_doc_to_visual(doc):
 def geobench_single_doc_to_text(doc, lmms_eval_specific_kwargs=None):
     kwargs = lmms_eval_specific_kwargs or {}
     question = doc["prompts"][0]
-    options  = doc["options"]
+    options = doc["options"]
     post = kwargs.get("post_prompt", "\nAnswer with the option letter only (A, B, C, D, or E).")
     return f"{question}\n{options}{post}"
 
@@ -50,10 +52,10 @@ def _extract_option_letter(pred: str) -> str:
 
 
 def geobench_single_process_results(doc, results):
-    pred    = _extract_option_letter(results[0])
-    gold    = doc["ground_truth_option"].strip().upper()
+    pred = _extract_option_letter(results[0])
+    gold = doc["ground_truth_option"].strip().upper()
     correct = int(pred == gold)
-    task    = doc.get("task", "unknown")
+    task = doc.get("task", "unknown")
     return {
         "single_accuracy": correct,
         "per_task": {"task": task, "correct": correct},
@@ -79,6 +81,7 @@ def geobench_per_task_aggregate(results):
 # Temporal split — two images (before/after), MCQ A–E
 # ---------------------------------------------------------------------------
 
+
 def geobench_temporal_doc_to_visual(doc):
     base = _base_dir()
     paths = doc["image_path"]  # list of 2 relative paths
@@ -87,8 +90,7 @@ def geobench_temporal_doc_to_visual(doc):
 
 def geobench_temporal_doc_to_text(doc, lmms_eval_specific_kwargs=None):
     kwargs = lmms_eval_specific_kwargs or {}
-    pre  = kwargs.get("pre_prompt",
-           "You are shown two satellite images from different time periods (before and after).\n")
+    pre = kwargs.get("pre_prompt", "You are shown two satellite images from different time periods (before and after).\n")
     post = kwargs.get("post_prompt", "\nAnswer with the option letter only (A, B, C, D, or E).")
     return f"{pre}{doc['prompts'][0]}\n{doc['options']}{post}"
 
@@ -98,10 +100,10 @@ def geobench_temporal_doc_to_target(doc):
 
 
 def geobench_temporal_process_results(doc, results):
-    pred    = _extract_option_letter(results[0])
-    gold    = doc["ground_truth_option"].strip().upper()
+    pred = _extract_option_letter(results[0])
+    gold = doc["ground_truth_option"].strip().upper()
     correct = int(pred == gold)
-    task    = doc.get("task", "unknown")
+    task = doc.get("task", "unknown")
     return {
         "temporal_accuracy": correct,
         "temporal_per_task": {"task": task, "correct": correct},
@@ -161,7 +163,7 @@ def _make_scorer(metric):
 
 def _cap_aggregate(results, metric):
     dataset = {"annotations": [], "images": []}
-    stored  = []
+    stored = []
     for r in results:
         rid = r["id"]
         stored.append({"image_id": rid, "caption": r["pred"]})
@@ -171,7 +173,7 @@ def _cap_aggregate(results, metric):
     coco.dataset = dataset
     coco.createIndex()
     coco_res = coco.loadRes(stored)
-    img_ids  = list({r["id"] for r in results})
+    img_ids = list({r["id"] for r in results})
     tokenizer = PTBTokenizer()
     gts = tokenizer.tokenize({i: coco.imgToAnns[i] for i in img_ids})
     res = tokenizer.tokenize({i: coco_res.imgToAnns[i] for i in img_ids})
@@ -182,18 +184,38 @@ def _cap_aggregate(results, metric):
     return score
 
 
-def geobench_cap_bleu1(r):  return _cap_aggregate(r, "Bleu_1")
-def geobench_cap_bleu2(r):  return _cap_aggregate(r, "Bleu_2")
-def geobench_cap_bleu3(r):  return _cap_aggregate(r, "Bleu_3")
-def geobench_cap_bleu4(r):  return _cap_aggregate(r, "Bleu_4")
-def geobench_cap_meteor(r): return _cap_aggregate(r, "METEOR")
-def geobench_cap_rouge(r):  return _cap_aggregate(r, "ROUGE_L")
-def geobench_cap_cider(r):  return _cap_aggregate(r, "CIDEr")
+def geobench_cap_bleu1(r):
+    return _cap_aggregate(r, "Bleu_1")
+
+
+def geobench_cap_bleu2(r):
+    return _cap_aggregate(r, "Bleu_2")
+
+
+def geobench_cap_bleu3(r):
+    return _cap_aggregate(r, "Bleu_3")
+
+
+def geobench_cap_bleu4(r):
+    return _cap_aggregate(r, "Bleu_4")
+
+
+def geobench_cap_meteor(r):
+    return _cap_aggregate(r, "METEOR")
+
+
+def geobench_cap_rouge(r):
+    return _cap_aggregate(r, "ROUGE_L")
+
+
+def geobench_cap_cider(r):
+    return _cap_aggregate(r, "CIDEr")
 
 
 # ---------------------------------------------------------------------------
 # Ref-Det split — referring expression detection, Acc@0.5 IoU
 # ---------------------------------------------------------------------------
+
 
 def geobench_ref_doc_to_visual(doc):
     return [_open_image(os.path.join(_base_dir(), doc["image_path"]))]
@@ -201,8 +223,7 @@ def geobench_ref_doc_to_visual(doc):
 
 def geobench_ref_doc_to_text(doc, lmms_eval_specific_kwargs=None):
     kwargs = lmms_eval_specific_kwargs or {}
-    post = kwargs.get("post_prompt",
-           "\nProvide the bounding box as [x1, y1, x2, y2] with coordinates normalized to [0, 1].")
+    post = kwargs.get("post_prompt", "\nProvide the bounding box as [x1, y1, x2, y2] with coordinates normalized to [0, 1].")
     return f"{doc['prompts'][0]}{post}"
 
 
@@ -219,8 +240,7 @@ def _polygons_to_bbox_01(polygons, img_size):
             all_y.append(pt[1])
     if not all_x:
         return None
-    return [min(all_x) / img_size, min(all_y) / img_size,
-            max(all_x) / img_size, max(all_y) / img_size]
+    return [min(all_x) / img_size, min(all_y) / img_size, max(all_x) / img_size, max(all_y) / img_size]
 
 
 def _parse_pred_bbox_01(s):
@@ -240,13 +260,13 @@ def _iou(a, b):
     if ix2 <= ix1 or iy2 <= iy1:
         return 0.0
     inter = (ix2 - ix1) * (iy2 - iy1)
-    ua = (a[2]-a[0])*(a[3]-a[1]) + (b[2]-b[0])*(b[3]-b[1]) - inter
+    ua = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
     return inter / ua if ua > 0 else 0.0
 
 
 def geobench_ref_process_results(doc, results):
     img_size = doc.get("image_size", 1024)
-    gt_box   = _polygons_to_bbox_01(doc["ground_truth"], img_size)
+    gt_box = _polygons_to_bbox_01(doc["ground_truth"], img_size)
     pred_box = _parse_pred_bbox_01(results[0])
     if gt_box is None or pred_box is None:
         acc = 0
