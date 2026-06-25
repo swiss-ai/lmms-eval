@@ -1,0 +1,27 @@
+dataset_path: json
+dataset_kwargs:
+  data_files:
+    test: hf://datasets/xiang709/VRSBench/VRSBench_EVAL_referring.json
+task: vrsbench_ref
+test_split: test
+output_type: generate_until
+doc_to_visual: !function utils.vrsbench_doc_to_visual
+doc_to_text: !function utils.vrsbench_ref_doc_to_text
+doc_to_target: !function utils.vrsbench_ref_doc_to_target
+generation_kwargs:
+  max_new_tokens: 32
+  temperature: 0
+  top_p: 1.0
+  num_beams: 1
+  do_sample: false
+process_results: !function utils.vrsbench_ref_process_results
+metric_list:
+  - metric: ref_acc50
+    aggregation: !function utils.vrsbench_ref_aggregate
+    higher_is_better: true
+lmms_eval_specific_kwargs:
+  default:
+    pre_prompt: ""
+    post_prompt: "\nProvide the bounding box of the described object as {<x1><y1><x2><y2>}, where coordinates are integers from 0 to 100."
+metadata:
+  - version: 0.0
