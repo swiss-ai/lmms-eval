@@ -2,6 +2,7 @@ import re
 import unicodedata
 from collections.abc import Callable, Collection
 from importlib import import_module
+from loguru import logger
 
 import editdistance as ed
 
@@ -91,7 +92,12 @@ def _normalize(
     if language in yue_languages and yue_converter is not None:
         text = yue_converter(text, "zh-cn")
     if language in english_languages and english_normalizer is not None:
-        text = english_normalizer(text)
+        try:
+            text = english_normalizer(text)
+        except AssertionError:
+            logger.warning("English ASR normalizer failed; falling back to basic normalization for text: {!r}", text)
+            if basic_normalizer is not None:
+                text = basic_normalizer(text)
     if language in chinese_languages and chinese_normalizer is not None:
         text = chinese_normalizer(text)
     elif basic_normalizer is not None:

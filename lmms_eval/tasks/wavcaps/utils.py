@@ -34,7 +34,11 @@ with open(Path(__file__).parent / "wavcaps.yaml", "r") as f:
 
 NUM_SECONDS_TO_SLEEP = 5
 GPT_EVAL_MODEL_NAME = os.getenv("MODEL_VERSION", "gpt-4o-2024-11-20")
-API_TYPE = os.getenv("API_TYPE", "azure")
+API_TYPE = os.getenv("API_TYPE", "azure").lower()
+API_URL = None
+API_KEY = None
+headers = {}
+JUDGE_DISABLED = API_TYPE in {"dummy", "none", "disabled", "off"}
 
 if API_TYPE == "openai":
     API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions")
@@ -50,6 +54,9 @@ elif API_TYPE == "azure":
         "api-key": API_KEY,
         "Content-Type": "application/json",
     }
+elif not JUDGE_DISABLED:
+    eval_logger.warning(f"Unsupported API_TYPE '{API_TYPE}' for WavCaps judge; skipping GPT eval calls.")
+    JUDGE_DISABLED = True
 
 eval_prompt = """
             [Question]
@@ -79,6 +86,9 @@ eval_prompt = """
 # gpt-4
 def get_eval(max_tokens: int, content: str):
     global headers
+
+    if JUDGE_DISABLED or API_URL is None:
+        return "", ""
 
     messages = [
         {"role": "user", "content": content},

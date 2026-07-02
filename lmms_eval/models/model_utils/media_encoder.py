@@ -3,12 +3,16 @@ import os
 from collections import OrderedDict
 from io import BytesIO
 from threading import Lock
-from typing import MutableMapping, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 
 from PIL import Image
 
 ImageInput = Union[Image.Image, str]
-EncodeCache = MutableMapping[Tuple[object, ...], str]
+
+# Process-wide LRU for path-keyed images only. Paths are content-addressed via
+# (abspath, mtime_ns, size), which stays valid across calls. PIL objects are
+# deliberately NOT cached: object identity (id()) is reusable after GC, so an
+# id-keyed entry can silently return another image's bytes.
 
 
 def _cache_max_items() -> int:
@@ -28,24 +32,22 @@ def _normalize_format(image_format: str) -> str:
     return image_format.upper()
 
 
-def _build_cache_key(
-    image: ImageInput,
+def _build_path_cache_key(
+    path: str,
     *,
     image_format: str,
     convert_rgb: bool,
     quality: Optional[int],
 ) -> Tuple[object, ...]:
-    if isinstance(image, str):
-        abs_path = os.path.abspath(image)
-        try:
-            stat = os.stat(abs_path)
-            mtime_ns = stat.st_mtime_ns
-            size = stat.st_size
-        except OSError:
-            mtime_ns = None
-            size = None
-        return ("path", abs_path, mtime_ns, size, image_format, convert_rgb, quality)
-    return ("obj", id(image), image_format, convert_rgb, quality)
+    abs_path = os.path.abspath(path)
+    try:
+        stat = os.stat(abs_path)
+        mtime_ns = stat.st_mtime_ns
+        size = stat.st_size
+    except OSError:
+        mtime_ns = None
+        size = None
+    return (abs_path, mtime_ns, size, image_format, convert_rgb, quality)
 
 
 def _lookup_path_cache(key: Tuple[object, ...]) -> Optional[str]:
@@ -103,22 +105,20 @@ def encode_image_to_base64(
     convert_rgb: bool = False,
     quality: Optional[int] = None,
     copy_if_pil: bool = False,
-    cache: Optional[EncodeCache] = None,
     use_path_cache: bool = True,
 ) -> str:
     normalized_format = _normalize_format(image_format)
-    cache_key = _build_cache_key(image, image_format=normalized_format, convert_rgb=convert_rgb, quality=quality)
 
-    if cache is not None:
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
-
+    cache_key: Optional[Tuple[object, ...]] = None
     if use_path_cache and isinstance(image, str):
+        cache_key = _build_path_cache_key(
+            image,
+            image_format=normalized_format,
+            convert_rgb=convert_rgb,
+            quality=quality,
+        )
         cached = _lookup_path_cache(cache_key)
         if cached is not None:
-            if cache is not None:
-                cache[cache_key] = cached
             return cached
 
     encoded_bytes = encode_image_to_bytes(
@@ -130,10 +130,7 @@ def encode_image_to_base64(
     )
     base64_str = base64.b64encode(encoded_bytes).decode("utf-8")
 
-    if cache is not None:
-        cache[cache_key] = base64_str
-
-    if use_path_cache and isinstance(image, str):
+    if cache_key is not None:
         _store_path_cache(cache_key, base64_str)
 
     return base64_str
@@ -147,7 +144,6 @@ def encode_image_to_data_url(
     convert_rgb: bool = False,
     quality: Optional[int] = None,
     copy_if_pil: bool = False,
-    cache: Optional[EncodeCache] = None,
     use_path_cache: bool = True,
 ) -> str:
     base64_str = encode_image_to_base64(
@@ -156,7 +152,6 @@ def encode_image_to_data_url(
         convert_rgb=convert_rgb,
         quality=quality,
         copy_if_pil=copy_if_pil,
-        cache=cache,
         use_path_cache=use_path_cache,
     )
     if mime_type is None:

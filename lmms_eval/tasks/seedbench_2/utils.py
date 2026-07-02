@@ -11,18 +11,20 @@ def parse_choice_img(choice: str, img_token: str):
     return choice
 
 
-def seed_doc_to_text(doc, model_specific_kwargs=None):
-    question = doc["question"]
-    question.replace("<img>", model_specific_kwargs["img_token"])
-    question += "\n" + f"A. {parse_choice_img(doc['choice_a'], model_specific_kwargs['img_token'])}\n"
-    question += f"B. {parse_choice_img(doc['choice_b'], model_specific_kwargs['img_token'])}\n"
-    question += f"C. {parse_choice_img(doc['choice_c'], model_specific_kwargs['img_token'])}\n"
-    question += f"D. {parse_choice_img(doc['choice_d'], model_specific_kwargs['img_token'])}"
+def seed_doc_to_text(doc, lmms_eval_specific_kwargs=None):
+    lmms_eval_specific_kwargs = lmms_eval_specific_kwargs or {}
+    img_token = lmms_eval_specific_kwargs.get("img_token", "<image>")
+    post_prompt = lmms_eval_specific_kwargs.get("post_prompt", "Answer with the option's letter from the given choices directly.")
+    question = doc["question"].replace("<img>", img_token)
+    question += "\n" + f"A. {parse_choice_img(doc['choice_a'], img_token)}\n"
+    question += f"B. {parse_choice_img(doc['choice_b'], img_token)}\n"
+    question += f"C. {parse_choice_img(doc['choice_c'], img_token)}\n"
+    question += f"D. {parse_choice_img(doc['choice_d'], img_token)}"
     if doc["data_type"] == "Image Generation":
         num_img_in_question = len(doc["data_id"]) - 4
-        prepend_tokens = [model_specific_kwargs["img_token"]] * num_img_in_question
+        prepend_tokens = [img_token] * num_img_in_question
         question = " ".join(prepend_tokens) + "\n" + question
-    return f"{question}\n{model_specific_kwargs['post_prompt']}"
+    return f"{question}\n{post_prompt}"
 
 
 def seed_process_result(doc, result):
