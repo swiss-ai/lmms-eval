@@ -1,0 +1,35 @@
+dataset_path: json
+dataset_kwargs:
+  data_files:
+    test: hf://datasets/knowledge-computing/FRIEDA/frieda_q_bank.json
+task: frieda
+test_split: test
+output_type: generate_until
+doc_to_visual: !function utils.frieda_doc_to_visual
+doc_to_text: !function utils.frieda_doc_to_text
+doc_to_target: !function utils.frieda_doc_to_target
+generation_kwargs:
+  max_new_tokens: 64
+  temperature: 0
+  top_p: 1.0
+  num_beams: 1
+  do_sample: false
+process_results: !function utils.frieda_process_results
+metric_list:
+  - metric: exact_match
+    aggregation: !function utils.frieda_exact_match
+    higher_is_better: true
+  - metric: f1
+    aggregation: !function utils.frieda_f1
+    higher_is_better: true
+  - metric: per_domain
+    aggregation: !function utils.frieda_per_domain_em
+    higher_is_better: true
+  - metric: per_type
+    aggregation: !function utils.frieda_per_type_em
+    higher_is_better: true
+lmms_eval_specific_kwargs:
+  default:
+    post_prompt: "\nProvide a concise answer."
+metadata:
+  - version: 0.0

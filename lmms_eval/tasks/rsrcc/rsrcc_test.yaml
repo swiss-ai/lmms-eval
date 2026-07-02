@@ -1,0 +1,33 @@
+dataset_path: google/RSRCC
+dataset_kwargs:
+  token: True
+task: rsrcc_test
+test_split: test
+output_type: generate_until
+doc_to_visual: !function utils.rsrcc_doc_to_visual
+doc_to_text: !function utils.rsrcc_doc_to_text
+doc_to_target: !function utils.rsrcc_doc_to_target
+generation_kwargs:
+  max_new_tokens: 16
+  temperature: 0
+  top_p: 1.0
+  num_beams: 1
+  do_sample: false
+process_results: !function utils.rsrcc_process_results
+metric_list:
+  - metric: accuracy
+    aggregation: !function utils.rsrcc_aggregate_accuracy
+    higher_is_better: true
+  - metric: mcq_accuracy
+    aggregation: !function utils.rsrcc_aggregate_mcq
+    higher_is_better: true
+  - metric: yesno_accuracy
+    aggregation: !function utils.rsrcc_aggregate_yesno
+    higher_is_better: true
+lmms_eval_specific_kwargs:
+  default:
+    pre_prompt: "You are shown two satellite images: the first image is the BEFORE image and the second image is the AFTER image.\n\n"
+    post_prompt_mcq: "\nAnswer with the option letter from the given choices directly (A, B, C, or D)."
+    post_prompt_yesno: "\nAnswer with Yes or No."
+metadata:
+  - version: 0.0

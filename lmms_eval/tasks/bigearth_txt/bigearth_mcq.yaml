@@ -1,0 +1,51 @@
+dataset_path: parquet
+dataset_kwargs:
+  data_files:
+    test: hf://datasets/BIFOLD-BigEarthNetv2-0/BigEarthNet.txt/BigEarthNet.txt.parquet
+process_docs: !function utils.bigearth_mcq_filter_docs
+task: bigearth_mcq
+test_split: test
+output_type: generate_until
+doc_to_visual: !function utils.bigearth_doc_to_visual
+doc_to_text: !function utils.bigearth_mcq_doc_to_text
+doc_to_target: !function utils.bigearth_mcq_doc_to_target
+generation_kwargs:
+  max_new_tokens: 8
+  temperature: 0
+  top_p: 1.0
+  num_beams: 1
+  do_sample: false
+process_results: !function utils.bigearth_mcq_process_results
+metric_list:
+  - metric: mcq_accuracy
+    aggregation: !function utils.bigearth_mcq_aggregate
+    higher_is_better: true
+  - metric: mcq_adjacency
+    aggregation: !function utils.bigearth_mcq_aggregate
+    higher_is_better: true
+  - metric: mcq_presence
+    aggregation: !function utils.bigearth_mcq_aggregate
+    higher_is_better: true
+  - metric: mcq_area
+    aggregation: !function utils.bigearth_mcq_aggregate
+    higher_is_better: true
+  - metric: mcq_count
+    aggregation: !function utils.bigearth_mcq_aggregate
+    higher_is_better: true
+  - metric: mcq_season
+    aggregation: !function utils.bigearth_mcq_aggregate
+    higher_is_better: true
+  - metric: mcq_climate_zone
+    aggregation: !function utils.bigearth_mcq_aggregate
+    higher_is_better: true
+  - metric: mcq_country
+    aggregation: !function utils.bigearth_mcq_aggregate
+    higher_is_better: true
+  - metric: mcq_relative_pos
+    aggregation: !function utils.bigearth_mcq_aggregate
+    higher_is_better: true
+lmms_eval_specific_kwargs:
+  default:
+    post_prompt: "\nAnswer with the option letter only (e.g. a, b, c, ...)."
+metadata:
+  - version: 0.0

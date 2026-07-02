@@ -1,0 +1,4 @@
+group: rsrcc
+task:
+  - rsrcc_test
+  - rsrcc_val
