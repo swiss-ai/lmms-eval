@@ -2,9 +2,9 @@ import re
 import unicodedata
 from collections.abc import Callable, Collection
 from importlib import import_module
-from loguru import logger
 
 import editdistance as ed
+from loguru import logger
 
 DEFAULT_PUNCS = "!,.?;:"
 
