@@ -27,7 +27,10 @@ def _open_image(path_or_dict):
 
 
 def geobench_doc_to_visual(doc):
-    return [_open_image(doc["image"])]
+    img = doc["image"]
+    if isinstance(img, dict) and img.get("bytes"):
+        return [_open_image(img)]
+    return [_open_image(os.path.join(_base_dir(), doc["image_path"]))]
 
 
 def geobench_single_doc_to_text(doc, lmms_eval_specific_kwargs=None):
