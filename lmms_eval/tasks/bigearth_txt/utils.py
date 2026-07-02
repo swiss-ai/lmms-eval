@@ -15,12 +15,10 @@ import os
 import re
 
 import numpy as np
-import torch
 from PIL import Image
 from pycocoevalcap.eval import Bleu, Cider, Meteor, Rouge
 from pycocoevalcap.tokenizer.ptbtokenizer import PTBTokenizer
 from pycocotools.coco import COCO
-from safetensors.numpy import load as safetensor_load
 
 # ---------------------------------------------------------------------------
 # Paths (override with env vars)
@@ -63,6 +61,9 @@ def _get_lmdb_env():
 
 def _load_rgb_from_lmdb(patch_id: str) -> Image.Image:
     """Load Sentinel-2 B04/B03/B02 from LMDB and return a PIL RGB image."""
+    import torch
+    from safetensors.numpy import load as safetensor_load
+
     env = _get_lmdb_env()
     with env.begin(write=False, buffers=True) as txn:
         byte_data = txn.get(patch_id.encode())

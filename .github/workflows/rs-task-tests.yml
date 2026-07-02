@@ -1,6 +1,17 @@
 name: rs-task-tests
 
 on:
+  push:
+    branches: [main, apertus-1p5-eval]
+    paths:
+      - "lmms_eval/tasks/rsrcc/**"
+      - "lmms_eval/tasks/vrsbench/**"
+      - "lmms_eval/tasks/geobench/**"
+      - "lmms_eval/tasks/bigearth_txt/**"
+      - "lmms_eval/tasks/frieda/**"
+      - "test/tasks/**"
+      - "pyproject.toml"
+      - ".github/workflows/rs-task-tests.yml"
   pull_request:
     paths:
       - "lmms_eval/tasks/rsrcc/**"
@@ -9,6 +20,7 @@ on:
       - "lmms_eval/tasks/bigearth_txt/**"
       - "lmms_eval/tasks/frieda/**"
       - "test/tasks/**"
+      - "pyproject.toml"
       - ".github/workflows/rs-task-tests.yml"
   workflow_dispatch:
 
@@ -25,9 +37,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      # The task utils are loaded by file path (matching lmms-eval's
-      # !function resolver), so only their direct imports are needed —
-      # no full uv sync.
+      # Task utils load by file path, so only their direct imports are needed.
       - name: Install test dependencies
         run: pip install pytest pillow numpy loguru pycocotools pycocoevalcap
 
