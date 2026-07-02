@@ -30,7 +30,7 @@ _DEFAULT_LMDB = ""  # set via BIGEARTH_LMDB_DIR env var
 
 # Band statistics from BigEarthNet v2 train split (after 120x120 resize)
 _MEANS = {"B04": 588.4096, "B03": 614.0557, "B02": 438.3721}
-_STDS  = {"B04": 684.5688, "B03": 603.2968, "B02": 607.0269}
+_STDS = {"B04": 684.5688, "B03": 603.2968, "B02": 607.0269}
 
 # Shared LMDB environment (opened once per process)
 _lmdb_env = None
@@ -48,6 +48,7 @@ def _get_lmdb_env():
     global _lmdb_env
     if _lmdb_env is None:
         import lmdb
+
         lmdb_dir = os.environ.get("BIGEARTH_LMDB_DIR", _DEFAULT_LMDB)
         _lmdb_env = lmdb.open(
             str(lmdb_dir),
@@ -55,7 +56,7 @@ def _get_lmdb_env():
             lock=False,
             meminit=False,
             readahead=False,
-            map_size=8 * 1024 ** 3,
+            map_size=8 * 1024**3,
         )
     return _lmdb_env
 
@@ -74,10 +75,15 @@ def _load_rgb_from_lmdb(patch_id: str) -> Image.Image:
     for band in ("B04", "B03", "B02"):
         arr = np.array(data[band], dtype=np.float32)
         if arr.shape != (120, 120):
-            arr = torch.nn.functional.interpolate(
-                torch.tensor(arr).unsqueeze(0).unsqueeze(0),
-                (120, 120), mode="nearest",
-            ).squeeze().numpy()
+            arr = (
+                torch.nn.functional.interpolate(
+                    torch.tensor(arr).unsqueeze(0).unsqueeze(0),
+                    (120, 120),
+                    mode="nearest",
+                )
+                .squeeze()
+                .numpy()
+            )
         bands.append(_normalize_band(arr, band))
 
     return Image.fromarray(np.stack(bands, axis=-1), mode="RGB")
@@ -111,6 +117,7 @@ def _load_rgb(patch_id: str) -> Image.Image:
 # Shared: load image
 # ---------------------------------------------------------------------------
 
+
 def bigearth_doc_to_visual(doc):
     img = _load_rgb(doc["patch_id"])
     return [img]
@@ -119,6 +126,7 @@ def bigearth_doc_to_visual(doc):
 # ---------------------------------------------------------------------------
 # Binary (yes/no)
 # ---------------------------------------------------------------------------
+
 
 def bigearth_binary_doc_to_text(doc, lmms_eval_specific_kwargs=None):
     kwargs = lmms_eval_specific_kwargs or {}
@@ -151,6 +159,7 @@ def bigearth_binary_aggregate(results):
 # Multiple choice
 # ---------------------------------------------------------------------------
 
+
 def bigearth_mcq_doc_to_text(doc, lmms_eval_specific_kwargs=None):
     kwargs = lmms_eval_specific_kwargs or {}
     post = kwargs.get("post_prompt", "\nAnswer with the option letter only (e.g. a, b, c, ...).")
@@ -180,6 +189,7 @@ def bigearth_mcq_aggregate(results):
 # Bounding box (Acc@0.5 IoU)
 # ---------------------------------------------------------------------------
 
+
 def bigearth_bbox_doc_to_text(doc, lmms_eval_specific_kwargs=None):
     kwargs = lmms_eval_specific_kwargs or {}
     post = kwargs.get("post_prompt", "\nOutput the bounding box as [x1 y1, x2 y2] with coordinates normalized to [0, 1].")
@@ -204,13 +214,13 @@ def _iou(a, b):
     if ix2 <= ix1 or iy2 <= iy1:
         return 0.0
     inter = (ix2 - ix1) * (iy2 - iy1)
-    ua = (a[2]-a[0])*(a[3]-a[1]) + (b[2]-b[0])*(b[3]-b[1]) - inter
+    ua = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
     return inter / ua if ua > 0 else 0.0
 
 
 def bigearth_bbox_process_results(doc, results):
     pred_box = _parse_bbox_01(results[0])
-    gt_box   = _parse_bbox_01(doc["output"])
+    gt_box = _parse_bbox_01(doc["output"])
     if pred_box is None or gt_box is None:
         acc = 0
     else:
@@ -256,7 +266,7 @@ def _make_scorer(metric):
 
 def _cap_aggregate(results, metric):
     dataset = {"annotations": [], "images": []}
-    stored  = []
+    stored = []
     for r in results:
         rid = r["id"]
         stored.append({"image_id": rid, "caption": r["pred"]})
@@ -267,7 +277,7 @@ def _cap_aggregate(results, metric):
     coco.dataset = dataset
     coco.createIndex()
     coco_res = coco.loadRes(stored)
-    img_ids  = list({r["id"] for r in results})
+    img_ids = list({r["id"] for r in results})
 
     tokenizer = PTBTokenizer()
     gts = tokenizer.tokenize({i: coco.imgToAnns[i] for i in img_ids})
@@ -280,13 +290,32 @@ def _cap_aggregate(results, metric):
     return score
 
 
-def bigearth_cap_bleu1(r):  return _cap_aggregate(r, "Bleu_1")
-def bigearth_cap_bleu2(r):  return _cap_aggregate(r, "Bleu_2")
-def bigearth_cap_bleu3(r):  return _cap_aggregate(r, "Bleu_3")
-def bigearth_cap_bleu4(r):  return _cap_aggregate(r, "Bleu_4")
-def bigearth_cap_meteor(r): return _cap_aggregate(r, "METEOR")
-def bigearth_cap_rouge(r):  return _cap_aggregate(r, "ROUGE_L")
-def bigearth_cap_cider(r):  return _cap_aggregate(r, "CIDEr")
+def bigearth_cap_bleu1(r):
+    return _cap_aggregate(r, "Bleu_1")
+
+
+def bigearth_cap_bleu2(r):
+    return _cap_aggregate(r, "Bleu_2")
+
+
+def bigearth_cap_bleu3(r):
+    return _cap_aggregate(r, "Bleu_3")
+
+
+def bigearth_cap_bleu4(r):
+    return _cap_aggregate(r, "Bleu_4")
+
+
+def bigearth_cap_meteor(r):
+    return _cap_aggregate(r, "METEOR")
+
+
+def bigearth_cap_rouge(r):
+    return _cap_aggregate(r, "ROUGE_L")
+
+
+def bigearth_cap_cider(r):
+    return _cap_aggregate(r, "CIDEr")
 
 
 # ---------------------------------------------------------------------------
@@ -296,14 +325,18 @@ def bigearth_cap_cider(r):  return _cap_aggregate(r, "CIDEr")
 # one file. The `type` column selects the task; `split == "bench"` selects the
 # evaluation subset (~7k rows out of 9.5M total).
 
+
 def bigearth_binary_filter_docs(docs):
     return docs.filter(lambda x: x["type"] == "binary" and x["split"] == "bench")
+
 
 def bigearth_mcq_filter_docs(docs):
     return docs.filter(lambda x: x["type"] == "mcq" and x["split"] == "bench")
 
+
 def bigearth_bbox_filter_docs(docs):
     return docs.filter(lambda x: x["type"] == "bounding box" and x["split"] == "bench")
+
 
 def bigearth_cap_filter_docs(docs):
     return docs.filter(lambda x: x["type"] == "captioning" and x["split"] == "bench")
