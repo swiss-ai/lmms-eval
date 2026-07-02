@@ -2,6 +2,7 @@ dataset_path: json
 dataset_kwargs:
   data_files:
     test: zip://Temporal/qa.json::hf://datasets/aialliance/GEOBench-VLM/Temporal.zip
+process_docs: !function utils.geobench_temporal_filter_docs
 task: geobench_temporal
 test_split: test
 output_type: generate_until
