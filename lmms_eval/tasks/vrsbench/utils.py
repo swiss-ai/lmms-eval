@@ -185,14 +185,32 @@ def _iou(a, b):
     return inter / ua if ua > 0 else 0.0
 
 
+def _norm_bbox_to_100(box):
+    """Rescale a predicted box to the 0-100 ground-truth convention.
+
+    Models frequently answer in their grounding-training convention instead of
+    the prompted 0-100 integers: 0-1 floats or 0-1000 integers (Qwen-VL style).
+    Same magnitude-based normalization as geobench_ref, so ref_acc50 measures
+    grounding rather than coordinate-format compliance."""
+    mx = max(box)
+    if mx <= 1.5:
+        return [v * 100 for v in box]
+    if mx <= 110:
+        return box
+    if mx <= 1100:
+        return [v / 10 for v in box]
+    return [v * 100 / 512 for v in box]
+
+
 def vrsbench_ref_process_results(doc, results):
     pred_box = _parse_bbox(results[0])
     gt_box = _parse_bbox(doc["ground_truth"])
     if pred_box is None or gt_box is None:
-        acc = 0
-    else:
-        acc = int(_iou(pred_box, gt_box) >= 0.5)
-    return {"ref_acc50": acc}
+        return {"ref_acc50": 0, "ref_acc50_strict": 0}
+    return {
+        "ref_acc50": int(_iou(_norm_bbox_to_100(pred_box), gt_box) >= 0.5),
+        "ref_acc50_strict": int(_iou(pred_box, gt_box) >= 0.5),
+    }
 
 
 def vrsbench_ref_aggregate(results):

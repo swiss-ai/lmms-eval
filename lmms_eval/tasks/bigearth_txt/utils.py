@@ -218,13 +218,26 @@ def _iou(a, b):
     return inter / ua if ua > 0 else 0.0
 
 
+def _norm_bbox_to_01(box):
+    """Rescale a predicted box to the 0-1 ground-truth convention (same
+    magnitude heuristic as geobench_ref/vrsbench_ref, 120x120 patches)."""
+    mx = max(box)
+    if mx <= 1.5:
+        return box
+    if mx <= 110:
+        return [v / 100 for v in box]
+    if mx <= 1100:
+        return [v / 1000 for v in box]
+    return [v / 120 for v in box]
+
+
 def bigearth_bbox_process_results(doc, results):
     pred_box = _parse_bbox_01(results[0])
     gt_box = _parse_bbox_01(doc["output"])
     if pred_box is None or gt_box is None:
         acc = 0
     else:
-        acc = int(_iou(pred_box, gt_box) >= 0.5)
+        acc = int(_iou(_norm_bbox_to_01(pred_box), gt_box) >= 0.5)
     return {"bbox_acc50": acc}
 
 
