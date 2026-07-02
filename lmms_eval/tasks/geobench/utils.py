@@ -26,6 +26,20 @@ def _open_image(path_or_dict):
 # ---------------------------------------------------------------------------
 
 
+def geobench_single_filter_docs(dataset):
+    def _has_image(doc):
+        img = doc["image"]
+        if isinstance(img, dict) and img.get("bytes"):
+            return True
+        return os.path.exists(os.path.join(_base_dir(), doc["image_path"]))
+
+    kept = dataset.filter(_has_image)
+    dropped = len(dataset) - len(kept)
+    if dropped:
+        eval_logger.warning(f"geobench_single: dropped {dropped}/{len(dataset)} docs whose images are unavailable (xBD imagery is not redistributed with GEOBench-VLM; stage it under GEOBENCH_DIR/Single/images to restore them)")
+    return kept
+
+
 def geobench_doc_to_visual(doc):
     img = doc["image"]
     if isinstance(img, dict) and img.get("bytes"):
