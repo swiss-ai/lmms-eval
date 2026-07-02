@@ -20,6 +20,9 @@ metric_list:
   - metric: bbox_acc50
     aggregation: !function utils.bigearth_bbox_aggregate
     higher_is_better: true
+  - metric: strict_bbox_acc50
+    aggregation: !function utils.bigearth_bbox_aggregate
+    higher_is_better: true
 lmms_eval_specific_kwargs:
   default:
     post_prompt: "\nOutput the bounding box as [x1 y1, x2 y2] with coordinates normalized to [0, 1]."

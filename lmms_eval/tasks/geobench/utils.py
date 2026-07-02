@@ -277,11 +277,12 @@ def _parse_pred_bbox_01(s):
     nums = re.findall(r"\d+\.?\d*", s)
     if len(nums) < 4:
         return None
-    vals = [float(n) for n in nums[:4]]
-    # If values look like 0-100 scale, normalize to 0-1
-    if max(vals) > 1.5:
-        vals = [v / 100.0 for v in vals]
-    return vals
+    return [float(n) for n in nums[:4]]
+
+
+def _best_iou(pred_box, gt_box, scales):
+    """Best IoU across the coordinate conventions models emit (0-1, 0-100, 0-1000, pixel)."""
+    return max(_iou([v * s for v in pred_box], gt_box) for s in scales)
 
 
 def _iou(a, b):
@@ -301,7 +302,7 @@ def geobench_ref_process_results(doc, results):
     if gt_box is None or pred_box is None:
         acc = 0
     else:
-        acc = int(_iou(gt_box, pred_box) >= 0.5)
+        acc = int(_best_iou(pred_box, gt_box, (1.0, 0.01, 0.001, 1.0 / img_size)) >= 0.5)
     return {"ref_acc50": acc}
 
 

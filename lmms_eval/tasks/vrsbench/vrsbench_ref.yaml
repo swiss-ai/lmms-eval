@@ -19,7 +19,7 @@ metric_list:
   - metric: ref_acc50
     aggregation: !function utils.vrsbench_ref_aggregate
     higher_is_better: true
-  - metric: ref_acc50_strict
+  - metric: strict_ref_acc50
     aggregation: !function utils.vrsbench_ref_aggregate
     higher_is_better: true
 lmms_eval_specific_kwargs:
