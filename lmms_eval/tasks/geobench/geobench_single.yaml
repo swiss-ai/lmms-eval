@@ -2,6 +2,7 @@ dataset_path: parquet
 dataset_kwargs:
   data_files:
     test: hf://datasets/aialliance/GEOBench-VLM/Single.parquet
+process_docs: !function utils.geobench_single_filter_docs
 task: geobench_single
 test_split: test
 output_type: generate_until
