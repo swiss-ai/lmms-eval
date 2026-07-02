@@ -99,6 +99,19 @@ def geobench_per_task_aggregate(results):
 # ---------------------------------------------------------------------------
 
 
+def geobench_temporal_filter_docs(dataset):
+    base = _base_dir()
+
+    def _has_images(doc):
+        return all(os.path.exists(os.path.join(base, p)) for p in doc["image_path"])
+
+    kept = dataset.filter(_has_images)
+    dropped = len(dataset) - len(kept)
+    if dropped:
+        eval_logger.warning(f"geobench_temporal: dropped {dropped}/{len(dataset)} docs whose images are unavailable (xBD imagery is not redistributed with GEOBench-VLM; stage it under GEOBENCH_DIR/Temporal/images to restore them)")
+    return kept
+
+
 def geobench_temporal_doc_to_visual(doc):
     base = _base_dir()
     paths = doc["image_path"]  # list of 2 relative paths
