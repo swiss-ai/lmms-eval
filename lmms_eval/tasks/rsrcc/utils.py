@@ -7,10 +7,13 @@ def _parse_text(text):
     answer_match = re.search(r"\*\*Answer:\*\*\s*(\S+)", text)
     answer = answer_match.group(1).strip() if answer_match else ""
 
-    # Everything before the last "\n\n**Answer:" is the question block
-    question_block = text.rsplit("\n\n**Answer:", 1)[0]
-    # Strip the leading "**Question:** " prefix
+    # The text field escapes newlines as literal "\\n" two-char sequences, so
+    # split on the marker itself; a real-newline prefix never matches and the
+    # answer leaks into the prompt.
+    question_block = re.split(r"(?:\\n|\s)*\*\*Answer:", text, maxsplit=1)[0]
+    # Strip the leading "**Question:** " prefix and render escaped newlines
     question_block = re.sub(r"^\*\*Question:\*\*\s*", "", question_block)
+    question_block = question_block.replace("\\n", "\n").strip()
 
     is_mcq = bool(re.search(r"\*\*[A-D]\)", text))
     return question_block, answer, is_mcq
