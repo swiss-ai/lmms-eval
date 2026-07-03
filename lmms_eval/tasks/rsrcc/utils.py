@@ -1,19 +1,31 @@
 import os
 import re
 
+from loguru import logger as eval_logger
+
 
 def _parse_text(text):
-    """Returns (question_with_options, answer, is_mcq) from the raw text field."""
-    answer_match = re.search(r"\*\*Answer:\*\*\s*(\S+)", text)
-    answer = answer_match.group(1).strip() if answer_match else ""
+    """Returns (question_with_options, answer, is_mcq); the text field escapes newlines as literal backslash-n."""
+    parts = re.split(r"(?:\\n|\s)*\*\*Answer:", text, maxsplit=1)
+    question_block = re.sub(r"^\*\*Question:\*\*\s*", "", parts[0])
+    question_block = question_block.replace("\\n", "\n").strip()
 
-    # Everything before the last "\n\n**Answer:" is the question block
-    question_block = text.rsplit("\n\n**Answer:", 1)[0]
-    # Strip the leading "**Question:** " prefix
-    question_block = re.sub(r"^\*\*Question:\*\*\s*", "", question_block)
+    answer = ""
+    if len(parts) > 1:
+        match = re.search(r"[A-Za-z0-9]+", parts[1])
+        if match:
+            answer = match.group(0)
 
-    is_mcq = bool(re.search(r"\*\*[A-D]\)", text))
+    is_mcq = bool(re.search(r"\*\*[A-D]\)", question_block))
     return question_block, answer, is_mcq
+
+
+def rsrcc_filter_docs(dataset):
+    kept = dataset.filter(lambda doc: _parse_text(doc["text"])[1] != "")
+    dropped = len(dataset) - len(kept)
+    if dropped:
+        eval_logger.warning(f"rsrcc: dropped {dropped}/{len(dataset)} docs with an unparseable gold answer")
+    return kept
 
 
 def rsrcc_doc_to_visual(doc):

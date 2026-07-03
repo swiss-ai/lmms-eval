@@ -1,6 +1,7 @@
 dataset_path: google/RSRCC
 dataset_kwargs:
   token: True
+process_docs: !function utils.rsrcc_filter_docs
 task: rsrcc_val
 test_split: validation
 output_type: generate_until
