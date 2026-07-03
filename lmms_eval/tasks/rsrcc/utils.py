@@ -34,6 +34,8 @@ def rsrcc_doc_to_visual(doc):
 
 def rsrcc_doc_to_text(doc, lmms_eval_specific_kwargs=None):
     question_block, _, is_mcq = _parse_text(doc["text"])
+    if "**Answer:" in question_block:
+        raise ValueError("rsrcc: answer marker survived prompt construction; refusing to leak the label into the prompt")
 
     kwargs = lmms_eval_specific_kwargs or {}
     pre_prompt = kwargs.get("pre_prompt", "You are shown two satellite images: the first image is the BEFORE image and the second image is the AFTER image.\n\n")
