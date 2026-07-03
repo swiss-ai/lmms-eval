@@ -185,14 +185,23 @@ def _iou(a, b):
     return inter / ua if ua > 0 else 0.0
 
 
+_SCALE_CANDIDATES = (1.0, 100.0, 0.1, 100.0 / 512.0)
+
+
+def _best_iou(pred_box, gt_box, scales=_SCALE_CANDIDATES):
+    """Best IoU across the coordinate conventions models emit (0-100, 0-1, 0-1000, 512px)."""
+    return max(_iou([v * s for v in pred_box], gt_box) for s in scales)
+
+
 def vrsbench_ref_process_results(doc, results):
     pred_box = _parse_bbox(results[0])
     gt_box = _parse_bbox(doc["ground_truth"])
     if pred_box is None or gt_box is None:
-        acc = 0
-    else:
-        acc = int(_iou(pred_box, gt_box) >= 0.5)
-    return {"ref_acc50": acc}
+        return {"ref_acc50": 0, "strict_ref_acc50": 0}
+    return {
+        "ref_acc50": int(_best_iou(pred_box, gt_box) >= 0.5),
+        "strict_ref_acc50": int(_iou(pred_box, gt_box) >= 0.5),
+    }
 
 
 def vrsbench_ref_aggregate(results):

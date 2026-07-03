@@ -218,14 +218,23 @@ def _iou(a, b):
     return inter / ua if ua > 0 else 0.0
 
 
+_SCALE_CANDIDATES = (1.0, 0.01, 0.001, 1.0 / 120.0)
+
+
+def _best_iou(pred_box, gt_box, scales=_SCALE_CANDIDATES):
+    """Best IoU across the coordinate conventions models emit (0-1, 0-100, 0-1000, 120px)."""
+    return max(_iou([v * s for v in pred_box], gt_box) for s in scales)
+
+
 def bigearth_bbox_process_results(doc, results):
     pred_box = _parse_bbox_01(results[0])
     gt_box = _parse_bbox_01(doc["output"])
     if pred_box is None or gt_box is None:
-        acc = 0
-    else:
-        acc = int(_iou(pred_box, gt_box) >= 0.5)
-    return {"bbox_acc50": acc}
+        return {"bbox_acc50": 0, "strict_bbox_acc50": 0}
+    return {
+        "bbox_acc50": int(_best_iou(pred_box, gt_box) >= 0.5),
+        "strict_bbox_acc50": int(_iou(pred_box, gt_box) >= 0.5),
+    }
 
 
 def bigearth_bbox_aggregate(results):
