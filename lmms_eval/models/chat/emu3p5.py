@@ -13,7 +13,9 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 
-# Import Emu3.5 classes (sys.path set up by EMU3p5EncoderBaseModel import above)
+# The base-model import installs external/Emu3.5/src on sys.path; it must run
+# before the emu3p5 import below (the registry imports this module directly).
+from lmms_eval.models.emu3p5_encoder_base_model import EMU3p5EncoderBaseModel  # noqa: F401  isort: skip
 from emu3p5 import Emu3Config, Emu3ForCausalLM
 from loguru import logger as eval_logger
 from PIL import Image
