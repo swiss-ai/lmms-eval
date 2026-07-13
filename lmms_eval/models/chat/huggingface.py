@@ -57,6 +57,7 @@ class Huggingface(lmms):
         interleave_visuals: Optional[bool] = False,
         reasoning_prompt: Optional[str] = None,
         trust_remote_code: Optional[bool] = False,
+        model_class: Optional[str] = None,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -89,7 +90,17 @@ class Huggingface(lmms):
 
         self.trust_remote_code = trust_remote_code
         config = AutoConfig.from_pretrained(pretrained, trust_remote_code=trust_remote_code)
-        if config.model_type in AutoModelForCausalLM._model_mapping.keys():
+        # Auto-mappings lag new archs and a checkpoint's declared class is not
+        # always the right eval entrypoint (gemma4's unified class free-runs
+        # multimodal decoding); model_class picks the transformers class by name.
+        import transformers as _tf
+
+        declared = (getattr(config, "architectures", None) or [None])[0]
+        if model_class:
+            model_cls = getattr(_tf, model_class)
+        elif declared and hasattr(_tf, declared):
+            model_cls = getattr(_tf, declared)
+        elif config.model_type in AutoModelForCausalLM._model_mapping.keys():
             model_cls = AutoModelForCausalLM
         elif config.model_type in AutoModelForImageTextToText._model_mapping.keys():
             model_cls = AutoModelForImageTextToText
