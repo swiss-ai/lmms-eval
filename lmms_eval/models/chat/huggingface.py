@@ -233,7 +233,13 @@ class Huggingface(lmms):
             images = self.flatten(images)
             videos = self.flatten(videos)
             audios = self.flatten(audios)
-            kwargs = {"images": images, "videos": videos, "audios": audios}
+            kwargs = {}
+            if images:
+                kwargs["images"] = images
+            if videos:
+                kwargs["videos"] = videos
+            if audios:
+                kwargs["audio"] = audios
             inputs = self.processor(text=texts, padding=True, return_tensors="pt", **kwargs)
 
             if self.device_map == "auto":
