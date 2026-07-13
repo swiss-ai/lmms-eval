@@ -325,11 +325,15 @@ class VLLM(lmms):
         return top_p
 
     def _build_sampling_params_dict(self, gen_kwargs: dict[str, Any]) -> dict[str, Any]:
-        return {
+        params = {
             "max_tokens": gen_kwargs["max_new_tokens"],
             "temperature": gen_kwargs["temperature"],
             "top_p": self._normalize_top_p_for_vllm(gen_kwargs["top_p"]),
         }
+        for key in ("top_k", "min_p", "presence_penalty", "frequency_penalty", "repetition_penalty"):
+            if key in gen_kwargs:
+                params[key] = gen_kwargs[key]
+        return params
 
     def _run_tp_synced(
         self,
