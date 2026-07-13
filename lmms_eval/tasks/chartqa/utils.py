@@ -10,7 +10,7 @@ def chartqa_doc_to_text(doc, lmms_eval_specific_kwargs):
 
 
 def chartqa_process_results(doc, results):
-    pred = results[0]
+    pred = results[0].strip().rstrip('.!,;:')
     type = doc["type"]
     score = relaxed_correctness(pred, doc["answer"])
     score = 1.0 if score else 0.0
