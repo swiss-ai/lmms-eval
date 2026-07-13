@@ -121,7 +121,7 @@ def rouge_scores(pred: str, target: str) -> Dict[str, float]:
 
 def judge_open(answer: str, response: str) -> Dict[str, float]:
     """Compute open-ended VQA metrics."""
-    em = float(response.strip().lower() == answer.strip().lower())
+    em = float(judge_close_end(answer, response))
     b1 = bleu(response, answer, 1)
     b2 = bleu(response, answer, 2)
     b3 = bleu(response, answer, 3)
