@@ -33,6 +33,8 @@ class Gemma4HF(Huggingface):
             return x[2], x[2]
 
         re_ords = utils.Collator([reg.args for reg in requests], _collate, group_fn=lambda x: x[2], grouping=True)
+        # batch 1 is a constraint, not an oversight: gemma4's processor only
+        # aligns image features when each conversation is tokenized alone.
         chunks = re_ords.get_batched(n=1, batch_fn=None)
         pbar = tqdm(total=len(requests), disable=(self.rank != 0), desc="Model Responding")
         for chunk in chunks:
@@ -74,7 +76,9 @@ class Gemma4HF(Huggingface):
                     decoded = parsed[-1]
                 else:
                     decoded = parsed
-            res.append(GenerationResult(text=str(decoded).strip(), token_counts=TokenCounts(output_tokens=len(new_tokens))))
+            ans = str(decoded).strip()
+            self.cache_hook.add_partial("generate_until", (ctx[0], gen_kwargs), ans)
+            res.append(GenerationResult(text=ans, token_counts=TokenCounts(output_tokens=len(new_tokens))))
             pbar.update(1)
         pbar.close()
         return re_ords.get_original(res)

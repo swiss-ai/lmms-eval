@@ -7,6 +7,7 @@ try:
     import decord
 except ImportError:
     decord = None
+import transformers
 from accelerate import Accelerator, DistributedType
 from loguru import logger as eval_logger
 from tqdm import tqdm
@@ -90,22 +91,18 @@ class Huggingface(lmms):
 
         self.trust_remote_code = trust_remote_code
         config = AutoConfig.from_pretrained(pretrained, trust_remote_code=trust_remote_code)
-        # Auto-mappings lag new archs and a checkpoint's declared class is not
-        # always the right eval entrypoint (gemma4's unified class free-runs
-        # multimodal decoding); model_class picks the transformers class by name.
-        import transformers as _tf
-
-        declared = (getattr(config, "architectures", None) or [None])[0]
+        # model_class names the transformers class explicitly for archs the
+        # Auto-mappings mis-resolve; the checkpoint-declared architecture is a
+        # last resort ahead of the headless AutoModel fallback only.
         if model_class:
-            model_cls = getattr(_tf, model_class)
-        elif declared and hasattr(_tf, declared):
-            model_cls = getattr(_tf, declared)
+            model_cls = getattr(transformers, model_class)
         elif config.model_type in AutoModelForCausalLM._model_mapping.keys():
             model_cls = AutoModelForCausalLM
         elif config.model_type in AutoModelForImageTextToText._model_mapping.keys():
             model_cls = AutoModelForImageTextToText
         else:
-            model_cls = AutoModel
+            declared = (getattr(config, "architectures", None) or [None])[0]
+            model_cls = getattr(transformers, declared) if declared and hasattr(transformers, declared) else AutoModel
 
         self._model = model_cls.from_pretrained(pretrained, trust_remote_code=trust_remote_code, **model_kwargs).eval()
         self.max_num_frames = max_num_frames
@@ -220,14 +217,6 @@ class Huggingface(lmms):
             if self.system_prompt:
                 chat_messages = [self._apply_system_prompt(messages, self.system_prompt) for messages in chat_messages]
             chat_messages: List[ChatMessages] = [ChatMessages(**{"messages": message}) for message in chat_messages]
-            visuals = []
-            videos = []
-            for messages in chat_messages:
-                visual, video, _ = messages.extract_media()
-                visuals.append(visual)
-                videos.append(video)
-            visuals = self.flatten(visuals)
-            videos = self.flatten(videos)
             gen_kwargs = all_gen_kwargs[0]
 
             # Apply chat template

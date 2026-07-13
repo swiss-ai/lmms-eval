@@ -42,6 +42,6 @@ def sqa_process_results(doc, results):
         result = 1.0 if pred[0].lower() == target else 0.0
         return {"exact_match": result}
     tokens = pred.split()
-    if tokens and tokens[-1].lower().rstrip(".!,;:") == target:
+    if tokens and tokens[-1].lower() == target:
         return {"exact_match": 1.0}
     return {"exact_match": 0.0}
