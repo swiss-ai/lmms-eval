@@ -194,16 +194,18 @@ def judge_multi_choice(choices: List[str], answer: str, response: str) -> bool:
         if answer in alphas:
             if split_response == choices_lower[ord(answer) - ord("a")]:
                 return True
-    else:
-        # Fallback: similarity matching
-        best_idx = 0
+    elif response.strip():
+        # Fallback: similarity matching. best_idx starts at -1 so an empty or
+        # zero-similarity response wins nothing — a default of 0 would credit a
+        # blank answer whenever the gold answer happens to be choice A.
+        best_idx = -1
         best_score = 0.0
         for i, choice in enumerate(choices_lower):
             score = SequenceMatcher(None, choice, response).ratio()
             if score > best_score:
                 best_score = score
                 best_idx = i
-        if alphas[best_idx] == answer or choices_lower[best_idx] == answer:
+        if best_idx >= 0 and (alphas[best_idx] == answer or choices_lower[best_idx] == answer):
             return True
 
     return False
