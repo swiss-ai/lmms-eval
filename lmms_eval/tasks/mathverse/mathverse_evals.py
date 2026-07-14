@@ -11,6 +11,7 @@ from lmms_eval.llm_judge import ServerConfig, get_server
 
 class MathVerseEvaluator:
     API_TYPE = os.getenv("API_TYPE", "openai")
+    gpt_model = os.getenv("MODEL_VERSION", "gpt-4o-2024-11-20")
     if API_TYPE == "openai":
         API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions")
         API_KEY = os.getenv("OPENAI_API_KEY", "YOUR_API_KEY")
