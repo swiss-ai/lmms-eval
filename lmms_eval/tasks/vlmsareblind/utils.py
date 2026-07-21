@@ -109,7 +109,7 @@ def vlmsareblind_aggregate_by_task(results: list[dict]) -> dict[str, float]:
         if is_correct:
             task_correct[task] += 1
 
-    task_accuracy = {task: task_correct[task] / task_total[task] for task in task_correct}
+    task_accuracy = {task: task_correct[task] / task_total[task] for task in task_total}
     task_accuracy["task_mean"] = sum(task_accuracy.values()) / len(task_accuracy)
 
     return task_accuracy
