@@ -220,6 +220,8 @@ class EvaluationTracker:
                     default=handle_non_serializable,
                     ensure_ascii=False,
                 )
+                # never persist credentials into result artifacts
+                dumped = re.sub(r"hf_[A-Za-z0-9]{10,}", "hf_***", dumped)
 
                 path = Path(self.output_path if self.output_path else Path.cwd())
                 path = path.joinpath(self.general_config_tracker.model_name_sanitized)

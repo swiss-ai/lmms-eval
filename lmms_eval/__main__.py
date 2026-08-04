@@ -13,6 +13,7 @@ import datetime
 import importlib
 import json
 import os
+import re
 import traceback
 import warnings
 from functools import partial
@@ -591,7 +592,7 @@ def cli_evaluate_single(args: Union[argparse.Namespace, None] = None) -> None:
         args.hf_hub_log_args += f",token={os.environ.get('HF_TOKEN')}"
 
     evaluation_tracker_args = simple_parse_args_string(args.hf_hub_log_args)
-    eval_logger.info(f"Evaluation tracker args: {evaluation_tracker_args}")
+    eval_logger.info("Evaluation tracker args: %s" % re.sub(r"hf_[A-Za-z0-9]{10,}", "hf_***", str(evaluation_tracker_args)))
 
     evaluation_tracker = EvaluationTracker(**evaluation_tracker_args)
 
