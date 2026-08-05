@@ -73,15 +73,21 @@ class Gemma4HF(Huggingface):
                 )
             for i in range(len(batch)):
                 new_tokens = generation[i][input_len:]
-                decoded = self.processor.decode(new_tokens, skip_special_tokens=False)
+                # skip_special_tokens keeps turn/end markers (<end_of_turn>,
+                # <|im_end|>) out of the answer; parse_response still gets the raw
+                # decode so thinking mode can split reasoning from the answer.
+                decoded = self.processor.decode(new_tokens, skip_special_tokens=True)
                 if hasattr(self.processor, "parse_response"):
-                    parsed = self.processor.parse_response(decoded)
+                    try:
+                        parsed = self.processor.parse_response(
+                            self.processor.decode(new_tokens, skip_special_tokens=False)
+                        )
+                    except Exception:
+                        parsed = None
                     if isinstance(parsed, dict):
-                        decoded = parsed.get("answer") or parsed.get("response") or parsed.get("content") or str(parsed)
+                        decoded = parsed.get("answer") or parsed.get("response") or parsed.get("content") or decoded
                     elif isinstance(parsed, tuple):
-                        decoded = parsed[-1]
-                    else:
-                        decoded = parsed
+                        decoded = str(parsed[-1])
                 ans = str(decoded).strip()
                 self.cache_hook.add_partial("generate_until", (ctx[i], gen_kwargs), ans)
                 res.append(GenerationResult(text=ans, token_counts=TokenCounts(output_tokens=len(new_tokens))))

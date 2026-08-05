@@ -440,6 +440,9 @@ class VLLM(lmms):
                 new_list.append(i)
         return new_list
 
+    def _format_context(self, contexts, task):
+        return contexts
+
     def generate_until(self, requests) -> List[str]:
         res = []
         pbar = make_progress(total=len(requests), disable=(self.rank != 0), desc="Model Responding")
@@ -486,9 +489,9 @@ class VLLM(lmms):
                                 "image_url": {"url": f"data:image/png;base64,{img}"},
                             }
                         )
-                    messages[0]["content"].append({"type": "text", "text": contexts})
+                    messages[0]["content"].append({"type": "text", "text": self._format_context(contexts, task)})
                 else:
-                    messages[0]["content"].append({"type": "text", "text": contexts})
+                    messages[0]["content"].append({"type": "text", "text": self._format_context(contexts, task)})
                     for img in self.flatten(imgs):
                         messages[0]["content"].append(
                             {

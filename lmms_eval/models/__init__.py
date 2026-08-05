@@ -106,6 +106,7 @@ AVAILABLE_SIMPLE_MODELS = {
     "videochat_flash": "VideoChat_Flash",
     "vila": "VILA",
     "vita": "VITA",
+    "molmo_vllm": "MolmoVLLM",
     "vllm": "VLLM",
     "vora": "VoRA",
     "whisper_vllm": "WhisperVllm",
