@@ -62,14 +62,32 @@ class GeneralConfigTracker:
         """Extracts the model name from the model arguments."""
 
         def extract_model_name(model_args: str, key: str) -> str:
-            """Extracts the model name from the model arguments using a key."""
-            args_after_key = model_args.split(key)[1]
-            return args_after_key.split(",")[0]
+            """Extracts the model name from the model arguments using
+            a key, matching only exact parameter names."""
+            # Parse comma-separated key=value pairs and find exact
+            # key match to avoid substring collisions (e.g. "model="
+            # matching inside "model_descriptor=")
+            for part in model_args.split(","):
+                if part.startswith(key):
+                    return part[len(key) :]
+            return ""
 
-        # order does matter, e.g. peft and delta are provided together with pretrained
-        prefixes = ["peft=", "delta=", "pretrained=", "model=", "model_version=", "model_name=", "model_id=", "path=", "engine="]
+        # order does matter, e.g. peft and delta are provided
+        # together with pretrained
+        prefixes = [
+            "peft=",
+            "delta=",
+            "pretrained=",
+            "model_descriptor=",
+            "model_version=",
+            "model_name=",
+            "model_id=",
+            "model=",
+            "path=",
+            "engine=",
+        ]
         for prefix in prefixes:
-            if prefix in model_args:
+            if any(part.startswith(prefix) for part in model_args.split(",")):
                 return extract_model_name(model_args, prefix)
         return ""
 
@@ -202,13 +220,18 @@ class EvaluationTracker:
                     default=handle_non_serializable,
                     ensure_ascii=False,
                 )
+                # never persist credentials into result artifacts
+                dumped = re.sub(r"hf_[A-Za-z0-9]{10,}", "hf_***", dumped)
 
                 path = Path(self.output_path if self.output_path else Path.cwd())
                 path = path.joinpath(self.general_config_tracker.model_name_sanitized)
                 path.mkdir(parents=True, exist_ok=True)
 
                 self.date_id = datetime_str.replace(":", "-")
-                file_results_aggregated = path.joinpath(f"{self.date_id}_results.json")
+                task_names = sorted(results.get("results", {}))
+                task_slug = "_".join(task_names[:3]) if task_names else ""
+                slug_prefix = f"{task_slug}_" if task_slug else ""
+                file_results_aggregated = path.joinpath(f"{self.date_id}_{slug_prefix}results.json")
                 file_results_aggregated.open("w", encoding="utf-8").write(dumped)
 
                 if self.api and self.push_results_to_hub:
@@ -221,10 +244,10 @@ class EvaluationTracker:
                     )
                     self.api.upload_file(
                         repo_id=repo_id,
-                        path_or_fileobj=str(path.joinpath(f"{self.date_id}_results.json")),
+                        path_or_fileobj=str(file_results_aggregated),
                         path_in_repo=os.path.join(
                             self.general_config_tracker.model_name,
-                            f"{self.date_id}_results.json",
+                            file_results_aggregated.name,
                         ),
                         repo_type="dataset",
                         commit_message=f"Adding aggregated results for {self.general_config_tracker.model_name}",
