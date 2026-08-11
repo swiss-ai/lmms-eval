@@ -46,6 +46,12 @@ class OpenAIProvider(ServerInterface):
         except ImportError:
             eval_logger.warning("OpenAI client not available, falling back to requests")
             self.use_client = False
+        except Exception as exc:
+            # Task modules construct judge servers at import time; a missing
+            # API key must not make tasks unloadable. is_available() still
+            # gates actual use.
+            eval_logger.warning(f"OpenAI client init failed ({exc}); falling back to requests")
+            self.use_client = False
 
     def is_available(self) -> bool:
         return bool(self.api_key)
