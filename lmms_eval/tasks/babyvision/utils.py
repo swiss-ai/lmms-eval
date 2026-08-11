@@ -155,13 +155,15 @@ def babyvision_process_results(doc, results, **kwargs):
     # Call LLM judge
     client = _get_openai_client()
     if client is None:
+        payload = {
+            "task_type": task_type,
+            "subtype": subtype,
+            "correct": False,
+            "error": "No API client",
+        }
         return {
-            "babyvision_overall_accuracy": {
-                "task_type": task_type,
-                "subtype": subtype,
-                "correct": False,
-                "error": "No API client",
-            }
+            "babyvision_overall_accuracy": payload,
+            "babyvision_grader_failure_rate": payload,
         }
 
     try:
@@ -183,24 +185,39 @@ def babyvision_process_results(doc, results, **kwargs):
 
     except Exception as e:
         eval_logger.error(f"LLM judge API call failed: {e}")
-        return {
-            "babyvision_overall_accuracy": {
-                "task_type": task_type,
-                "subtype": subtype,
-                "correct": False,
-                "error": str(e),
-            }
-        }
-
-    return {
-        "babyvision_overall_accuracy": {
+        payload = {
             "task_type": task_type,
             "subtype": subtype,
-            "correct": correct,
-            "parsed_pred": parsed_pred,
-            "groundtruth": groundtruth,
+            "correct": False,
+            "error": str(e),
         }
+        return {
+            "babyvision_overall_accuracy": payload,
+            "babyvision_grader_failure_rate": payload,
+        }
+
+    payload = {
+        "task_type": task_type,
+        "subtype": subtype,
+        "correct": correct,
+        "parsed_pred": parsed_pred,
+        "groundtruth": groundtruth,
     }
+    return {
+        "babyvision_overall_accuracy": payload,
+        "babyvision_grader_failure_rate": payload,
+    }
+
+
+def babyvision_aggregate_failure_rate(results):
+    """Fraction of samples whose judge call failed.
+
+    Surfacing this lets the dashboard's grader-failure guard void the cell
+    instead of publishing a dead judge's all-wrong scores as a real result.
+    """
+    if not results:
+        return 0.0
+    return sum(1 for r in results if r.get("error")) / len(results)
 
 
 def babyvision_aggregate_results(results):

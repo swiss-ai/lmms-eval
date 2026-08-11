@@ -63,8 +63,11 @@ def parse_float_sequence_within(input_str):
     Returns:
     list: A list of four floats if the pattern is found, or a list of four zeros if the pattern is not found.
     """
-    # Define the regex pattern to find the first instance of four floats within square brackets
-    pattern = r"\[\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\s*\]"
+    # Accept four floats wrapped in matching [] or () delimiters. Models often
+    # emit "(x1, y1, x2, y2)" instead of square brackets; the original regex
+    # accepted only [...] and silently zeroed out every prediction. Same fix as
+    # screenspot/utils_rec.py.
+    pattern = r"[\[\(]\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*[\]\)]"
 
     # Use re.search to find the first match of the pattern in the input string
     match = re.search(pattern, input_str)

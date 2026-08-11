@@ -1,5 +1,6 @@
 import os
 
+import av
 import numpy as np
 from loguru import logger as eval_logger
 from PIL import Image
@@ -18,13 +19,6 @@ def vsibench_doc_to_visual_as_images(doc, lmms_eval_specific_kwargs=None):
     """
     Return video frames as a list of PIL Images instead of video path.
     This allows the model to process the video as multi-image input.
-
-    Args:
-        doc: Document containing video metadata
-        lmms_eval_specific_kwargs: Optional kwargs containing 'num_frames' (default: 32)
-
-    Returns:
-        List of PIL.Image objects sampled uniformly from the video
     """
     from decord import VideoReader, cpu
 
@@ -37,21 +31,27 @@ def vsibench_doc_to_visual_as_images(doc, lmms_eval_specific_kwargs=None):
 
     num_frames = int(_get_specific_kwarg(lmms_eval_specific_kwargs, "num_frames", 32))
 
-    # Load video and sample frames uniformly
-    vr = VideoReader(video_path, ctx=cpu(0))
-    total_frames = len(vr)
+    container = av.open(video_path)
+    stream = container.streams.video[0]
+    total_frames = stream.frames or sum(1 for _ in container.decode(video=0))
 
-    # Ensure we don't request more frames than available
+    if total_frames == 0:
+        container.close()
+        raise ValueError(f"Video has 0 frames: {video_path}")
+
     num_frames = min(num_frames, total_frames)
+    indices = set(np.linspace(0, total_frames - 1, num_frames, dtype=int).tolist())
 
-    indices = np.linspace(0, total_frames - 1, num_frames, dtype=int)
-    frames = vr.get_batch(indices).asnumpy()
-
-    # Convert to PIL Images
-    pil_images = [Image.fromarray(frame) for frame in frames]
+    container.seek(0)
+    pil_images = []
+    for i, frame in enumerate(container.decode(video=0)):
+        if i in indices:
+            pil_images.append(frame.to_image())
+        if len(pil_images) >= num_frames:
+            break
+    container.close()
 
     eval_logger.info(f"Loaded {len(pil_images)} frames from video as images (total_frames={total_frames})")
-
     return pil_images
 
 

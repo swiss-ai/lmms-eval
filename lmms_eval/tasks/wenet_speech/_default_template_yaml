@@ -1,6 +1,10 @@
 dataset_path: lmms-lab-audio/WenetSpeech
 dataset_kwargs:
   token: True
+  verification_mode: no_checks
+  data_files:
+    dev: data/dev-00000-of-00001.parquet
+    test_meeting: data/test_meeting-00000-of-00001.parquet
 doc_to_target: "text"
 doc_to_visual: !function utils.wenet_speech_doc_to_audio
 doc_to_text: !function utils.wenet_speech_doc_to_text

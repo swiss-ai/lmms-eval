@@ -1,6 +1,7 @@
 dataset_path: hf-audio/esb-datasets-test-only-sorted
 dataset_kwargs:
   token: True
+  verification_mode: no_checks
 output_type: generate_until
 doc_to_visual: !function utils.openasr_doc_to_audio
 doc_to_text: !function utils.openasr_doc_to_text

@@ -1,0 +1,31 @@
+dataset_path: json
+dataset_kwargs:
+  data_files:
+    test: zip://Temporal/qa.json::hf://datasets/aialliance/GEOBench-VLM/Temporal.zip
+process_docs: !function utils.geobench_temporal_filter_docs
+task: geobench_temporal
+test_split: test
+output_type: generate_until
+doc_to_visual: !function utils.geobench_temporal_doc_to_visual
+doc_to_text: !function utils.geobench_temporal_doc_to_text
+doc_to_target: !function utils.geobench_temporal_doc_to_target
+generation_kwargs:
+  max_new_tokens: 8
+  temperature: 0
+  top_p: 1.0
+  num_beams: 1
+  do_sample: false
+process_results: !function utils.geobench_temporal_process_results
+metric_list:
+  - metric: temporal_accuracy
+    aggregation: !function utils.geobench_temporal_aggregate
+    higher_is_better: true
+  - metric: temporal_per_task
+    aggregation: !function utils.geobench_temporal_per_task_aggregate
+    higher_is_better: true
+lmms_eval_specific_kwargs:
+  default:
+    pre_prompt: "You are shown two satellite images from different time periods (before and after).\n"
+    post_prompt: "\nAnswer with the option letter only (A, B, C, D, or E)."
+metadata:
+  - version: 0.0

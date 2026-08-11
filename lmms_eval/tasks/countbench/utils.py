@@ -24,8 +24,13 @@ NUMBER_WORD_TO_NUMERAL = {
 }
 
 
+def _clean(text: str) -> str:
+    return text.strip().strip("*").strip().rstrip(".!,;:")
+
+
 def _normalize_count_answer(answer) -> str:
-    normalized = str(answer).strip().lower()
+    normalized = _clean(str(answer).lower())
+    normalized = _clean(normalized.rsplit(":", 1)[-1])
     return NUMBER_WORD_TO_NUMERAL.get(normalized, normalized)
 
 

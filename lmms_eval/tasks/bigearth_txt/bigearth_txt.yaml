@@ -1,0 +1,6 @@
+group: bigearth_txt
+task:
+  - bigearth_binary
+  - bigearth_mcq
+  - bigearth_bbox
+  - bigearth_cap

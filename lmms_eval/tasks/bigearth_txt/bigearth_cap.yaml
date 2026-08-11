@@ -1,0 +1,42 @@
+dataset_path: parquet
+dataset_kwargs:
+  data_files:
+    test: hf://datasets/BIFOLD-BigEarthNetv2-0/BigEarthNet.txt/BigEarthNet.txt.parquet
+process_docs: !function utils.bigearth_cap_filter_docs
+task: bigearth_cap
+test_split: test
+output_type: generate_until
+doc_to_visual: !function utils.bigearth_doc_to_visual
+doc_to_text: !function utils.bigearth_cap_doc_to_text
+doc_to_target: !function utils.bigearth_cap_doc_to_target
+generation_kwargs:
+  max_new_tokens: 256
+  temperature: 0
+  top_p: 1.0
+  num_beams: 1
+  do_sample: false
+process_results: !function utils.bigearth_cap_process_results
+metric_list:
+  - metric: cap_CIDEr
+    aggregation: !function utils.bigearth_cap_cider
+    higher_is_better: true
+  - metric: cap_Bleu_4
+    aggregation: !function utils.bigearth_cap_bleu4
+    higher_is_better: true
+  - metric: cap_Bleu_3
+    aggregation: !function utils.bigearth_cap_bleu3
+    higher_is_better: true
+  - metric: cap_Bleu_2
+    aggregation: !function utils.bigearth_cap_bleu2
+    higher_is_better: true
+  - metric: cap_Bleu_1
+    aggregation: !function utils.bigearth_cap_bleu1
+    higher_is_better: true
+  - metric: cap_METEOR
+    aggregation: !function utils.bigearth_cap_meteor
+    higher_is_better: true
+  - metric: cap_ROUGE_L
+    aggregation: !function utils.bigearth_cap_rouge
+    higher_is_better: true
+metadata:
+  - version: 0.0

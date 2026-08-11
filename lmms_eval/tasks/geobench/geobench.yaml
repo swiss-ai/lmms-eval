@@ -1,0 +1,6 @@
+group: geobench
+task:
+  - geobench_single
+  - geobench_temporal
+  - geobench_cap
+  - geobench_ref
