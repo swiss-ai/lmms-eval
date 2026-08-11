@@ -120,6 +120,28 @@ reka = [
 qwen = [
     "qwen_vl_utils",
 ]
+emu3 = [
+    "torch==2.2.1",
+    "transformers==4.44.0",
+    "tiktoken==0.6.0",
+    "flash-attn==2.5.7",
+    "pillow",
+]
+emu3_5 = [
+    "pillow>=9.0.0",
+    "numpy>=1.21.0",
+    "tqdm>=4.64.0",
+    "protobuf>=3.20.0",
+    "tiktoken>=0.12.0",
+    "imageio==2.37.0",
+    "imageio-ffmpeg==0.6.0",
+    "omegaconf==2.3.0",
+    "transformers==4.48.2",
+    "accelerate>=0.20.0",
+    "torchvision>=0.15.0",
+    #"torchaudio>=2.0.0",
+    #"torch>=2.6.0",
+]
 mmsearch = [
     "playwright",
     "requests",
@@ -155,6 +177,18 @@ all = [
     "lmms_eval[mmsearch]",
     "lmms_eval[tui]",
     "lmms_eval[video]",
+]
+# Benchmark-specific dependencies
+ocrbench_v2 = [
+    "pandas>=2.0.0",
+    "distance>=0.1.3",
+    "apted>=1.0.3",
+    "lxml>=4.9.0",
+    "jieba>=0.42.1",
+    "Polygon3>=3.0.9",
+    "ipdb>=0.13.13",
+    "editdistance>=0.6.0",
+    "Levenshtein>=0.21.0",
 ]
 
 [tool.setuptools.package-data]
@@ -207,6 +241,25 @@ lmms-eval-ui = "lmms_eval.tui.cli:main"
 [project.urls]
 Homepage = "https://lmms-lab.github.io"
 Repository = "https://github.com/EvolvingLMMs-Lab/lmms-eval"
+
+
+[tool.uv]
+# emu3 and emu3_5 pin mutually incompatible tiktoken/transformers/torch;
+# declare them exclusive so uv's universal resolution (uv sync / uv lock)
+# doesn't require a single version satisfying both.
+conflicts = [
+    [
+        { extra = "emu3" },
+        { extra = "emu3_5" },
+    ],
+]
+
+# flash-attn ships no static metadata (sdist-only, needs torch at build time);
+# declare its dependencies so uv lock doesn't have to build it.
+[[tool.uv.dependency-metadata]]
+name = "flash-attn"
+version = "2.5.7"
+requires-dist = ["torch", "einops"]
 
 [dependency-groups]
 dev = [
