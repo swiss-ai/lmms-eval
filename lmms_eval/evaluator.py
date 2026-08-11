@@ -1253,8 +1253,17 @@ def evaluate(
                     target = task.doc_to_target(doc)
                     saved_doc = {}
                     for key, value in doc.items():
-                        if not is_multimodal_content(value):
-                            saved_doc[key] = value
+                        if is_multimodal_content(value):
+                            continue
+                        # Some datasets (e.g. mme_realworld) store the image as a
+                        # base64 *string* under a non-standard key, which slips past
+                        # is_multimodal_content (it only catches raw bytes/PIL/ndarray).
+                        # Such blobs bloat logged_samples and OOM the CUDA gather_object
+                        # below. Scoring never needs them (doc_to_visual re-decodes from
+                        # the live doc), so drop oversized string payloads from the log.
+                        if isinstance(value, str) and len(value) > 8192:
+                            continue
+                        saved_doc[key] = value
                     filtered_arguments = []
                     for req in requests:
                         # check if req.args is a list of tuples, and each item in the list is a serializable object

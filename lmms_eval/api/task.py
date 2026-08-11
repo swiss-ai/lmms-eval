@@ -67,6 +67,17 @@ def _expand_cache_path(path: str) -> str:
     return os.path.expanduser(os.path.expandvars(path))
 
 
+def _is_audio_visual(value: Any) -> bool:
+    if isinstance(value, dict):
+        return "array" in value and ("sampling_rate" in value or "sample_rate" in value)
+
+    type_name = type(value).__name__
+    if type_name in {"AudioDecoder", "AudioSamples"}:
+        return True
+
+    return any(hasattr(value, attr) for attr in ("get_all_samples", "decode", "samples")) and (hasattr(value, "sample_rate") or hasattr(value, "sampling_rate") or type_name == "AudioDecoder")
+
+
 @lru_cache(maxsize=1)
 def _resolve_hf_datasets_cache_dir() -> str:
     """Pick a datasets cache directory that is safe for file locks."""
