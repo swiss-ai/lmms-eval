@@ -7,6 +7,7 @@ try:
     import decord
 except ImportError:
     decord = None
+import transformers
 from accelerate import Accelerator, DistributedType
 from loguru import logger as eval_logger
 from tqdm import tqdm
@@ -57,6 +58,7 @@ class Huggingface(lmms):
         interleave_visuals: Optional[bool] = False,
         reasoning_prompt: Optional[str] = None,
         trust_remote_code: Optional[bool] = False,
+        model_class: Optional[str] = None,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -89,12 +91,18 @@ class Huggingface(lmms):
 
         self.trust_remote_code = trust_remote_code
         config = AutoConfig.from_pretrained(pretrained, trust_remote_code=trust_remote_code)
-        if config.model_type in AutoModelForCausalLM._model_mapping.keys():
+        # model_class names the transformers class explicitly for archs the
+        # Auto-mappings mis-resolve; the checkpoint-declared architecture is a
+        # last resort ahead of the headless AutoModel fallback only.
+        if model_class:
+            model_cls = getattr(transformers, model_class)
+        elif config.model_type in AutoModelForCausalLM._model_mapping.keys():
             model_cls = AutoModelForCausalLM
         elif config.model_type in AutoModelForImageTextToText._model_mapping.keys():
             model_cls = AutoModelForImageTextToText
         else:
-            model_cls = AutoModel
+            declared = (getattr(config, "architectures", None) or [None])[0]
+            model_cls = getattr(transformers, declared) if declared and hasattr(transformers, declared) else AutoModel
 
         self._model = model_cls.from_pretrained(pretrained, trust_remote_code=trust_remote_code, **model_kwargs).eval()
         self.max_num_frames = max_num_frames
@@ -209,14 +217,6 @@ class Huggingface(lmms):
             if self.system_prompt:
                 chat_messages = [self._apply_system_prompt(messages, self.system_prompt) for messages in chat_messages]
             chat_messages: List[ChatMessages] = [ChatMessages(**{"messages": message}) for message in chat_messages]
-            visuals = []
-            videos = []
-            for messages in chat_messages:
-                visual, video, _ = messages.extract_media()
-                visuals.append(visual)
-                videos.append(video)
-            visuals = self.flatten(visuals)
-            videos = self.flatten(videos)
             gen_kwargs = all_gen_kwargs[0]
 
             # Apply chat template
@@ -233,7 +233,13 @@ class Huggingface(lmms):
             images = self.flatten(images)
             videos = self.flatten(videos)
             audios = self.flatten(audios)
-            kwargs = {"images": images, "videos": videos, "audios": audios}
+            kwargs = {}
+            if images:
+                kwargs["images"] = images
+            if videos:
+                kwargs["videos"] = videos
+            if audios:
+                kwargs["audio"] = audios
             inputs = self.processor(text=texts, padding=True, return_tensors="pt", **kwargs)
 
             if self.device_map == "auto":
