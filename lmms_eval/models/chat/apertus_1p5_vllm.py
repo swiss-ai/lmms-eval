@@ -1,10 +1,15 @@
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+
+from apertus_image_tokenizer import splice_frames
+from PIL import Image as PILImage
+from tqdm import tqdm
 
 from lmms_eval.api.instance import GenerationResult, TokenCounts
 from lmms_eval.api.registry import register_model
-from lmms_eval.models.chat.vllm import VLLM
+from lmms_eval.models.chat.vllm import VLLM, WORKERS
 from lmms_eval.protocol import ChatMessages
 from lmms_eval.utils import eval_logger
 
@@ -19,14 +24,12 @@ DEFAULT_TOKENIZER_PATH = "swiss-ai/Apertus-v1.5-8B"
 class Apertus1p5VLLM(VLLM):
     """Apertus 1.5 vLLM chat wrapper with chat-template-safe tokenization.
 
-    The engine is a text-only ApertusForCausalLM: images enter as discrete
-    tokens, so the chat renderer (which needs an HF multimodal processor the
-    checkpoint does not ship) cannot be used. The template is rendered outside
-    vLLM and images travel through generate()'s multi_modal_data, mirroring
-    the VLMEvalKit wrapper this port follows.
+    The engine is a text-only ApertusForCausalLM: images are spliced into the
+    prompt as framed visual-token text (Emu3.5 VQ, via the suite's shared
+    apertus_image_tokenizer) before tokenization, so the engine only ever
+    sees token ids. The chat renderer (which needs an HF multimodal processor
+    the checkpoint does not ship) is bypassed entirely.
     """
-
-    _chat_add_special_tokens = False
 
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("skip_mm_profiling", True)
@@ -36,7 +39,6 @@ class Apertus1p5VLLM(VLLM):
         from transformers import AutoTokenizer
 
         self._ap_tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=False)
-        self._ap_image_tokenizer = None
         # A local tokenizer dir may carry the template as a file; an HF repo id
         # ships it inside the tokenizer itself (chat_template=None uses that).
         self._ap_chat_template = None
@@ -45,13 +47,9 @@ class Apertus1p5VLLM(VLLM):
             if os.path.isfile(template_path):
                 with open(template_path, encoding="utf-8") as f:
                     self._ap_chat_template = f.read()
-
-    def _chat_template_kwargs(self):
         # A deliberation run that silently loses this flag still completes and
-        # looks healthy, so record what actually reached the chat template.
-        kwargs = super()._chat_template_kwargs()
-        eval_logger.info(f"apertus_1p5_vllm: enable_thinking={self.enable_thinking} chat_template_kwargs={kwargs}")
-        return kwargs
+        # looks healthy, so record what the template will actually receive.
+        eval_logger.info(f"apertus_1p5_vllm: enable_thinking={self.enable_thinking} tokenizer={tokenizer_path}")
 
     def _build_sampling_params_dict(self, gen_kwargs):
         params = super()._build_sampling_params_dict(gen_kwargs)
@@ -61,8 +59,6 @@ class Apertus1p5VLLM(VLLM):
         return params
 
     def _render_request(self, request):
-        from PIL import Image as PILImage
-
         ctx, doc_to_messages, gen_kwargs, doc_id, task, split = request.arguments
         raw_messages = doc_to_messages(self.task_dict[task][split][doc_id])
         template_messages, images = [], []
@@ -73,7 +69,7 @@ class Apertus1p5VLLM(VLLM):
                     parts.append({"type": "text", "text": content.text})
                 elif content.type == "image":
                     img = content.url if isinstance(content.url, PILImage.Image) else PILImage.open(content.url)
-                    images.append(img.convert("RGB"))
+                    images.append(img)
                     parts.append({"type": "image"})
                 else:
                     raise ValueError(f"apertus_1p5_vllm does not support content type {content.type!r}")
@@ -87,7 +83,7 @@ class Apertus1p5VLLM(VLLM):
             enable_thinking=self.enable_thinking,
         )
         if images:
-            prompt = self._splice_image_frames(prompt, images)
+            prompt = splice_frames(prompt, images, self._ap_tokenizer)
         token_ids = self._ap_tokenizer(prompt, add_special_tokens=False, return_attention_mask=False)["input_ids"]
         prompt_data = {"prompt_token_ids": token_ids}
 
@@ -97,32 +93,25 @@ class Apertus1p5VLLM(VLLM):
         gen.setdefault("top_p", 0.95)
         return prompt_data, self._build_sampling_params_dict(gen)
 
-    def _splice_image_frames(self, prompt, images):
-        # Discrete unified: images become framed visual-token text via the
-        # Emu3.5 VQ tokenizer, so the engine only ever sees token ids.
-        from apertus_image_tokenizer import splice_frames
-
-        return splice_frames(prompt, images, self._ap_tokenizer)
-
-    def generate_until(self, requests):
-        from tqdm import tqdm
+    def _run_generate(self, items):
         from vllm import SamplingParams
 
+        response = self.client.generate(
+            prompts=[prompt_data for prompt_data, _ in items],
+            sampling_params=[SamplingParams(**params) for _, params in items],
+        )
+        return [(o.outputs[0].text, len(o.outputs[0].token_ids)) for o in response]
+
+    def generate_until(self, requests):
         results = []
         pbar = tqdm(total=len(requests), disable=(self.rank != 0), desc="Apertus vLLM generate")
         batch_size = self.batch_size_per_gpu
         for start in range(0, len(requests), batch_size):
             batch = requests[start : start + batch_size]
-            rendered = [self._render_request(request) for request in batch]
-
-            def _run_generate(items):
-                response = self.client.generate(
-                    prompts=[prompt_data for prompt_data, _ in items],
-                    sampling_params=[SamplingParams(**params) for _, params in items],
-                )
-                return [(o.outputs[0].text, len(o.outputs[0].token_ids)) for o in response]
-
-            outputs = self._run_tp_synced(rendered, _run_generate)
+            with ThreadPoolExecutor(max_workers=WORKERS) as executor:
+                rendered = list(executor.map(self._render_request, batch))
+            outputs = self._run_tp_synced(rendered, self._run_generate)
+            assert len(outputs) == len(batch)
             results.extend(GenerationResult(text=text, token_counts=TokenCounts(output_tokens=n_out)) for text, n_out in outputs)
             pbar.update(len(batch))
         pbar.close()
