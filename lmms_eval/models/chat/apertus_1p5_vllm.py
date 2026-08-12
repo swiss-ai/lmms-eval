@@ -1,6 +1,5 @@
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 from apertus_image_tokenizer import splice_frames
@@ -9,7 +8,7 @@ from tqdm import tqdm
 
 from lmms_eval.api.instance import GenerationResult, TokenCounts
 from lmms_eval.api.registry import register_model
-from lmms_eval.models.chat.vllm import VLLM, WORKERS
+from lmms_eval.models.chat.vllm import VLLM
 from lmms_eval.protocol import ChatMessages
 from lmms_eval.utils import eval_logger
 
@@ -108,8 +107,9 @@ class Apertus1p5VLLM(VLLM):
         batch_size = self.batch_size_per_gpu
         for start in range(0, len(requests), batch_size):
             batch = requests[start : start + batch_size]
-            with ThreadPoolExecutor(max_workers=WORKERS) as executor:
-                rendered = list(executor.map(self._render_request, batch))
+            # Sequential by design: the VQ encode inside rendering is GPU work,
+            # and pool threads beside the engine hit cuDNN/OOM failures.
+            rendered = [self._render_request(request) for request in batch]
             outputs = self._run_tp_synced(rendered, self._run_generate)
             assert len(outputs) == len(batch)
             results.extend(GenerationResult(text=text, token_counts=TokenCounts(output_tokens=n_out)) for text, n_out in outputs)
