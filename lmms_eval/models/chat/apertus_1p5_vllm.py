@@ -62,6 +62,16 @@ class Apertus1p5VLLM(VLLM):
         raw_messages = doc_to_messages(self.task_dict[task][split][doc_id])
         template_messages, images = [], []
         for message in ChatMessages(messages=raw_messages).messages:
+            # The chat template accepts {"parts"} only for user turns; system
+            # and assistant turns take plain strings (and carry no images).
+            if message.role != "user":
+                texts = []
+                for content in message.content:
+                    if content.type != "text":
+                        raise ValueError(f"apertus_1p5_vllm: {message.role} turns support only text, got {content.type!r}")
+                    texts.append(content.text)
+                template_messages.append({"role": message.role, "content": "".join(texts)})
+                continue
             parts = []
             for content in message.content:
                 if content.type == "text":
