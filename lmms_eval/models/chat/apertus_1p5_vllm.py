@@ -102,8 +102,9 @@ class Apertus1p5VLLM(VLLM):
 
         results = []
         pbar = tqdm(total=len(requests), disable=(self.rank != 0), desc="Apertus vLLM generate")
-        for start in range(0, len(requests), self.batch_size):
-            batch = requests[start : start + self.batch_size]
+        batch_size = self.batch_size_per_gpu
+        for start in range(0, len(requests), batch_size):
+            batch = requests[start : start + batch_size]
             rendered = [self._render_request(request) for request in batch]
 
             def _run_generate(items):
