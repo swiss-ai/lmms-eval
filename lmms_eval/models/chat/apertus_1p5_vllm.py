@@ -36,6 +36,7 @@ class Apertus1p5VLLM(VLLM):
         from transformers import AutoTokenizer
 
         self._ap_tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=False)
+        self._ap_image_tokenizer = None
         # A local tokenizer dir may carry the template as a file; an HF repo id
         # ships it inside the tokenizer itself (chat_template=None uses that).
         self._ap_chat_template = None
@@ -85,16 +86,44 @@ class Apertus1p5VLLM(VLLM):
             chat_template=self._ap_chat_template,
             enable_thinking=self.enable_thinking,
         )
+        if images:
+            prompt = self._splice_image_frames(prompt, images)
         token_ids = self._ap_tokenizer(prompt, add_special_tokens=False, return_attention_mask=False)["input_ids"]
         prompt_data = {"prompt_token_ids": token_ids}
-        if images:
-            prompt_data["multi_modal_data"] = {"image": images}
 
         gen = dict(gen_kwargs or {})
         gen["max_new_tokens"] = self._select_max_new_tokens(gen.get("max_new_tokens"))
         gen.setdefault("temperature", 0)
         gen.setdefault("top_p", 0.95)
         return prompt_data, self._build_sampling_params_dict(gen)
+
+    def _mm_kwargs(self):
+        kwargs = {}
+        hub = os.environ.get("APERTUS_VQ_HUB")
+        if not hub:
+            cache = os.environ.get("LMMS_EVAL_MODELS_CACHE") or os.environ.get("VLLM_APERTUS_MODELS_CACHE")
+            if cache and os.path.isdir(os.path.join(cache, "BAAI/Emu3.5-VisionTokenizer")):
+                hub = os.path.join(cache, "BAAI/Emu3.5-VisionTokenizer")
+        if hub:
+            kwargs["apertus_vq_hub"] = hub
+        return kwargs
+
+    def _splice_image_frames(self, prompt, images):
+        # Discrete unified: images become framed visual-token text via the
+        # Emu3.5 VQ tokenizer, so the engine only ever sees token ids.
+        if self._ap_image_tokenizer is None:
+            from apertus_image_tokenizer import ApertusImageTokenizer
+
+            self._ap_image_tokenizer = ApertusImageTokenizer()
+        mm_kwargs = self._mm_kwargs()
+        frames = self._ap_image_tokenizer.encode_images(images, tokenizer=self._ap_tokenizer, mm_processor_kwargs=mm_kwargs)
+        aliases = self._ap_image_tokenizer.placeholder_aliases(self._ap_tokenizer, mm_kwargs)
+        placeholder = next((a for a in aliases if a in prompt), None)
+        if placeholder is None or prompt.count(placeholder) != len(frames):
+            raise ValueError(f"image placeholder mismatch: aliases={aliases} count={None if placeholder is None else prompt.count(placeholder)} images={len(frames)}")
+        for frame in frames:
+            prompt = prompt.replace(placeholder, frame, 1)
+        return prompt
 
     def generate_until(self, requests):
         from tqdm import tqdm
