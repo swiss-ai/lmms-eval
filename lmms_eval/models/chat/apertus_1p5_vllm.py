@@ -97,33 +97,12 @@ class Apertus1p5VLLM(VLLM):
         gen.setdefault("top_p", 0.95)
         return prompt_data, self._build_sampling_params_dict(gen)
 
-    def _mm_kwargs(self):
-        kwargs = {}
-        hub = os.environ.get("APERTUS_VQ_HUB")
-        if not hub:
-            cache = os.environ.get("LMMS_EVAL_MODELS_CACHE") or os.environ.get("VLLM_APERTUS_MODELS_CACHE")
-            if cache and os.path.isdir(os.path.join(cache, "BAAI/Emu3.5-VisionTokenizer")):
-                hub = os.path.join(cache, "BAAI/Emu3.5-VisionTokenizer")
-        if hub:
-            kwargs["apertus_vq_hub"] = hub
-        return kwargs
-
     def _splice_image_frames(self, prompt, images):
         # Discrete unified: images become framed visual-token text via the
         # Emu3.5 VQ tokenizer, so the engine only ever sees token ids.
-        if self._ap_image_tokenizer is None:
-            from apertus_image_tokenizer import ApertusImageTokenizer
+        from apertus_image_tokenizer import splice_frames
 
-            self._ap_image_tokenizer = ApertusImageTokenizer()
-        mm_kwargs = self._mm_kwargs()
-        frames = self._ap_image_tokenizer.encode_images(images, tokenizer=self._ap_tokenizer, mm_processor_kwargs=mm_kwargs)
-        aliases = self._ap_image_tokenizer.placeholder_aliases(self._ap_tokenizer, mm_kwargs)
-        placeholder = next((a for a in aliases if a in prompt), None)
-        if placeholder is None or prompt.count(placeholder) != len(frames):
-            raise ValueError(f"image placeholder mismatch: aliases={aliases} count={None if placeholder is None else prompt.count(placeholder)} images={len(frames)}")
-        for frame in frames:
-            prompt = prompt.replace(placeholder, frame, 1)
-        return prompt
+        return splice_frames(prompt, images, self._ap_tokenizer)
 
     def generate_until(self, requests):
         from tqdm import tqdm
