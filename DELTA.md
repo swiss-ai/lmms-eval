@@ -9,7 +9,7 @@ each sync: every invasive entry must still justify itself or be dropped.
 
 | Patch | Contents | Conflict risk at sync |
 |---|---|---|
-| models (additive) | `apertus_1p5_vllm`, `gemma4_hf`, `molmo_vllm`, Emu3.5 integration — 22 new files | none |
+| models (additive) | `apertus_1p5_vllm`, `molmo_vllm`, Emu3.5 integration (gemma4_hf retired 2026-08-13: could not complete at fleet batch size — OOM'd ranks hung nodes — while the generic vllm backend serves Gemma4 in 9 min) | none |
 | models (invasive) | registry entries in `models/__init__.py`; `chat/vllm.py`, `chat/huggingface.py`, `simple/vllm.py`, `media_encoder.py` | dict-union + small hunks |
 | security | HF-token masking in `__main__.py`, `loggers/evaluation_tracker.py`, `loggers/wandb_logger.py` | low — **upstream-PR candidate** |
 | core | `api/task.py`, `evaluator.py`, `protocol.py` (visual routing, encode settings) | medium — upstream refactors here |

@@ -148,7 +148,6 @@ AVAILABLE_CHAT_TEMPLATE_MODELS = {
     "vllm_generate": "VLLMGenerate",
     "sglang": "Sglang",
     "huggingface": "Huggingface",
-    "gemma4_hf": "Gemma4HF",
     "litellm": "LiteLLMCompatible",
     "async_openai": "AsyncOpenAIChat",
     "async_hf_model": "AsyncHFModel",
