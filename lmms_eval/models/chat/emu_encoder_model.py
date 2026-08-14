@@ -115,6 +115,9 @@ class EMUEncoderModelMixin:
             chat_messages = [doc_to_messages[idx](self.task_dict[task][split][ids]) for idx, (ids, task, split) in enumerate(zip(doc_id, task, split))]
             chat_messages: List[ChatMessages] = [ChatMessages(**{"messages": message}) for message in chat_messages]
 
+            # Answers land at their sample's index so skipped placeholders and
+            # generated answers cannot interleave out of order.
+            chunk_res = [None] * len(chat_messages)
             # Extract media and prepare batch
             batch_data = []
 
@@ -129,7 +132,7 @@ class EMUEncoderModelMixin:
                     text_only_count += 1
                     if self.skip_text_only:
                         skipped_text_only += 1
-                    res.append("")
+                    chunk_res[idx] = ""
                     self.cache_hook.add_partial(
                         "generate_until",
                         (ctx[idx], all_gen_kwargs[idx]),
@@ -143,7 +146,7 @@ class EMUEncoderModelMixin:
                     multi_image_count += 1
                     if self.skip_multi_image:
                         skipped_multi_image += 1
-                        res.append("")
+                        chunk_res[idx] = ""
                         self.cache_hook.add_partial(
                             "generate_until",
                             (ctx[idx], all_gen_kwargs[idx]),
@@ -168,6 +171,7 @@ class EMUEncoderModelMixin:
 
                 batch_data.append(
                     {
+                        "idx": idx,
                         "messages": transformed_messages,
                         "images": pil_images,
                         "context": ctx[idx],
@@ -176,6 +180,7 @@ class EMUEncoderModelMixin:
 
             # Skip if all samples filtered
             if len(batch_data) == 0:
+                res.extend(chunk_res)
                 continue
 
             gen_kwargs = all_gen_kwargs[0]
@@ -241,7 +246,7 @@ class EMUEncoderModelMixin:
                 answers_with_tokens = self.processor.batch_decode(outputs_trimmed, skip_special_tokens=False)
 
             for i, (ans, item, text) in enumerate(zip(answers, batch_data, texts)):
-                res.append(ans)
+                chunk_res[item["idx"]] = ans
                 self.cache_hook.add_partial("generate_until", (item["context"], gen_kwargs), ans)
                 pbar.update(1)
 
@@ -266,6 +271,8 @@ class EMUEncoderModelMixin:
 
                 eval_logger.debug(f"Question: {text}")
                 eval_logger.debug(f"Model Response: {ans}")
+
+            res.extend(chunk_res)
 
         # Reorder results
         res = re_ords.get_original(res)
