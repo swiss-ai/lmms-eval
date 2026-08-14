@@ -20,10 +20,32 @@ TASK_PREFIXES = {
 }
 
 MCQ_TASKS = {
-    "ai2d", "blink", "cv_bench", "mmbench", "mmmu", "mmstar", "mmvp", "muirbench",
-    "realworldqa", "scienceqa", "seedbench", "vlmsareblind", "vlms_are_biased",
-    "mathvista", "mathvision", "mathverse", "visulogic", "mmsi_bench", "mindcube",
-    "embspatial", "erqa", "medxpertqa", "medmcqa", "medqa", "pmc_vqa", "path_mmu",
+    "ai2d",
+    "blink",
+    "cv_bench",
+    "mmbench",
+    "mmmu",
+    "mmstar",
+    "mmvp",
+    "muirbench",
+    "realworldqa",
+    "scienceqa",
+    "seedbench",
+    "vlmsareblind",
+    "vlms_are_biased",
+    "mathvista",
+    "mathvision",
+    "mathverse",
+    "visulogic",
+    "mmsi_bench",
+    "mindcube",
+    "embspatial",
+    "erqa",
+    "medxpertqa",
+    "medmcqa",
+    "medqa",
+    "pmc_vqa",
+    "path_mmu",
 }
 
 MCQ_PREFIX = "a_okvqa_mc:"

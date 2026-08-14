@@ -89,9 +89,7 @@ class MultiChoiceRegexFilter(RegexFilter):
             # the original ": B" form. The gold label is "(A)", so a model that
             # answers with the letter alone was otherwise scored wrong for a
             # correct answer.
-            without_paren_fallback_regex = re.compile(
-                rf"(?:^|:)\s*({without_paren_fallback_regex})\b"
-            )
+            without_paren_fallback_regex = re.compile(rf"(?:^|:)\s*({without_paren_fallback_regex})\b")
 
             filtered = []
             for resp in r:
