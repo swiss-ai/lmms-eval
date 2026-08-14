@@ -31,7 +31,6 @@ class Apertus1p5VLLM(VLLM):
     """
 
     def __init__(self, *args, **kwargs):
-        kwargs.setdefault("skip_mm_profiling", True)
         self.enable_thinking = kwargs.pop("enable_thinking", False)
         tokenizer_path = kwargs.get("tokenizer") or os.environ.get("APERTUS_TOKENIZER_PATH") or DEFAULT_TOKENIZER_PATH
         super().__init__(*args, **kwargs)
