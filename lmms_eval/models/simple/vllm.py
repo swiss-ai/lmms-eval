@@ -451,14 +451,14 @@ class VLLM(lmms):
         batched_requests = [requests[i : i + batch_size] for i in range(0, len(requests), batch_size)]
         for batch_requests in batched_requests:
             batched_messages = []
-            sampling_params = None
+            sampling_params_dicts = []
             for idx in range(len(batch_requests)):
                 contexts, gen_kwargs, doc_to_visual, doc_id, task, split = batch_requests[idx].arguments
                 gen_kwargs = dict(gen_kwargs or {})
                 gen_kwargs["max_new_tokens"] = self._select_max_new_tokens(gen_kwargs.get("max_new_tokens"))
                 gen_kwargs.setdefault("temperature", 0)
                 gen_kwargs.setdefault("top_p", 0.95)
-                sampling_params = SamplingParams(**self._build_sampling_params_dict(gen_kwargs))
+                sampling_params_dicts.append(self._build_sampling_params_dict(gen_kwargs))
 
                 visuals = [doc_to_visual(self.task_dict[task][split][doc_id])]
                 if None in visuals:
@@ -506,25 +506,29 @@ class VLLM(lmms):
             # - vllm chat method: https://docs.vllm.ai/en/stable/models/generative_models.html#llmchat
             # The logic here is similar to the vllm implementation as shown here (https://docs.vllm.ai/en/stable/models/generative_models.html#llmchat)
             # - vllm implementation: https://github.com/vllm-project/vllm/blob/d97841078b6e0dde8da36d5a2b8e8857a2c37944/vllm/entrypoints/chat_utils.py#L829
+            # Each request keeps its own sampling params; the (message, params)
+            # pairs travel together through the TP gather so they stay aligned.
             def _run_chat(inputs: list[Any]) -> list[str]:
+                messages = [m for m, _ in inputs]
+                per_request_params = [SamplingParams(**p) for _, p in inputs]
                 if self.chat_template is not None:
                     response = self.client.chat(
-                        sampling_params=sampling_params,
-                        messages=inputs,
+                        sampling_params=per_request_params,
+                        messages=messages,
                         chat_template=self.chat_template,
                         **self._chat_template_kwargs(),
                         **self._chat_tokenization_kwargs(),
                     )
                 else:
                     response = self.client.chat(
-                        sampling_params=sampling_params,
-                        messages=inputs,
+                        sampling_params=per_request_params,
+                        messages=messages,
                         **self._chat_template_kwargs(),
                         **self._chat_tokenization_kwargs(),
                     )
                 return [o.outputs[0].text for o in response]
 
-            response_text = self._run_tp_synced(batched_messages, _run_chat)
+            response_text = self._run_tp_synced(list(zip(batched_messages, sampling_params_dicts)), _run_chat)
 
             assert len(response_text) == len(batch_requests)
             res.extend(response_text)
