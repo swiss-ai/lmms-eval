@@ -1774,6 +1774,8 @@ class ConfigurableMessagesTask(ConfigurableTask):
     def _visual_to_content(cls, visual) -> dict:
         if isinstance(visual, PIL_Image.Image):
             return {"type": "image", "url": visual}
+        if _is_audio_visual(visual):
+            return {"type": "audio", "url": visual}
         if isinstance(visual, dict):
             media_type = visual.get("type", "video")
             has_metadata = any(k in visual for k in ("video_start", "video_end"))
