@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 import torch
+
+# The base-model import installs external/Emu3.5/src on sys.path; it must run
+# before the emu3p5 import below (the registry imports this module directly).
+from lmms_eval.models.emu3p5_encoder_base_model import EMU3p5EncoderBaseModel  # noqa: F401  isort: skip
 from emu3p5 import Emu3Config, Emu3ForCausalLM
 from loguru import logger as eval_logger
 from PIL import Image
@@ -21,18 +25,11 @@ from transformers.generation.configuration_utils import GenerationConfig
 from lmms_eval import utils
 from lmms_eval.api.instance import Instance
 from lmms_eval.api.registry import register_model
-from lmms_eval.models.emu3p5_encoder_base_model import (  # noqa: E402 — sets up sys.path for emu3p5
-    EMU3p5EncoderBaseModel,
-)
 from lmms_eval.models.model_utils.emu3p5.download_utils import ensure_local_weights
 from lmms_eval.models.model_utils.emu3p5.emu3p5_tokenizer_loader import (
     load_emu3p5_tokenizer,
 )
 from lmms_eval.protocol import ChatMessages
-
-# The base-model import installs external/Emu3.5/src on sys.path; it must run
-# before the emu3p5 import below (the registry imports this module directly).
-from lmms_eval.models.emu3p5_encoder_base_model import EMU3p5EncoderBaseModel  # noqa: F401  isort: skip
 
 
 # Path to EMU3.5 tokenizer directory
