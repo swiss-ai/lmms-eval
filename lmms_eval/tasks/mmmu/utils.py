@@ -2,13 +2,13 @@ import ast
 import json
 import os
 import re
+import threading
 from collections import defaultdict
 from pathlib import Path
 
 import yaml
 from loguru import logger as eval_logger
 
-from lmms_eval.llm_judge import ServerConfig, get_server
 from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
 from lmms_eval.tasks._task_utils.mmmu_mcq_utils import (
     get_multi_choice_info as shared_get_multi_choice_info,
@@ -16,6 +16,8 @@ from lmms_eval.tasks._task_utils.mmmu_mcq_utils import (
 from lmms_eval.tasks._task_utils.mmmu_mcq_utils import (
     parse_mmmu_multi_choice_response,
 )
+from lmms_eval.verifiers import VerificationPipeline
+from lmms_eval.verifiers.openai import OpenAIVerifier
 
 with open(Path(__file__).parent / "_default_template_yaml", "r") as f:
     raw_data = f.readlines()
@@ -30,11 +32,28 @@ with open(Path(__file__).parent / "_default_template_yaml", "r") as f:
 API_TYPE = os.getenv("API_TYPE", "openai")
 MODEL_VERSION = os.getenv("MODEL_VERSION", "gpt-4o-2024-11-20")
 
-# Initialize the judge server
-server_config = ServerConfig(
-    model_name=MODEL_VERSION,
-)
-server = get_server(server_name=API_TYPE, config=server_config)
+# ---------------------------------------------------------------------------
+# Lazy VerificationPipeline singleton for reasoning evaluation
+# ---------------------------------------------------------------------------
+
+_reasoning_pipeline = None
+_reasoning_pipeline_lock = threading.Lock()
+
+
+def _get_reasoning_pipeline() -> VerificationPipeline:
+    global _reasoning_pipeline
+    if _reasoning_pipeline is None:
+        with _reasoning_pipeline_lock:
+            if _reasoning_pipeline is None:  # double-check
+                _reasoning_pipeline = VerificationPipeline(
+                    extractors=[],
+                    verifier=OpenAIVerifier(
+                        model=MODEL_VERSION,
+                        api_type=API_TYPE,
+                        judge_type="binary",
+                    ),
+                )
+    return _reasoning_pipeline
 
 
 def replace_images_tokens(input_string):
@@ -166,47 +185,37 @@ def mmmu_process_results(doc, results):
             index2ans, all_choices = get_multi_choice_info(ast.literal_eval(doc["options"]))
             parsed_pred = parse_multi_choice_response(pred, all_choices, index2ans)
         else:
+            # eval_open expects the full normalized candidate list (with
+            # floats intact); stringifying the first candidate makes eval_open
+            # iterate characters and no open answer can ever score correct.
             parsed_pred = parse_open_response(pred)
-            parsed_pred = str(parsed_pred[0]) if parsed_pred else ""
         parsed_preds.append(parsed_pred)
-    mmmu_submission = {doc["id"]: parsed_preds[0]}
+    submission_pred = parsed_preds[0]
+    if isinstance(submission_pred, list):
+        submission_pred = str(submission_pred[0]) if submission_pred else ""
+    mmmu_submission = {doc["id"]: submission_pred}
     mmmu_exact_acc = {"id": doc["id"], "subdomain": extract_subset_name(doc["id"]), "question_type": doc["question_type"], "answer": doc["answer"], "parsed_pred": parsed_preds}
     return {"mmmu_acc": mmmu_exact_acc, "mmmu_acc_pass_at_k": mmmu_exact_acc, "submission": mmmu_submission}
 
 
 def mmmu_reasoning_process_results(doc, results):
-    parsed_preds = []
+    pipeline = _get_reasoning_pipeline()
+    formatted_question = construct_prompt(doc)
+    answer = str(doc["answer"])
+
     scores = []
     for pred in results:
-        formatted_question = construct_prompt(doc)
         # Extract content from <answer> tags if present, handling potential spaces
-        answer = doc["answer"]
         if isinstance(pred, str):
             match = re.search(r"<answer>\s*([\s\S]*?)\s*</answer>", pred)
             if match:
                 pred = match.group(1).strip()
 
-        try:
-            # Use the llm_judge API for binary evaluation
-            result = server.evaluate_binary(question=formatted_question, answer=str(answer), prediction=pred, output_format="0/1")
-
-            # Parse the result
-            if result["success"]:
-                judge_response = result["result"]
-                judge_score = int(judge_response) if isinstance(judge_response, str) else judge_response
-            else:
-                eval_logger.error(f"Judge evaluation failed: {result.get('raw_response', 'Unknown error')}")
-                judge_score = 0
-
-        except Exception as e:
-            eval_logger.error(f"Error getting judge response: {e}")
-            judge_score = 0
-
-        scores.append(judge_score)
-        parsed_preds.append(pred)
+        result = pipeline(question=formatted_question, prediction=pred, ground_truth=answer)
+        scores.append(1 if result.is_correct else 0)
 
     # Calculate the average score for this document
-    avg_score = sum(1 if score == 1 else 0 for score in scores) / len(scores) if scores else 0
+    avg_score = sum(scores) / len(scores) if scores else 0
     return {"llm_as_judge_eval": avg_score}
 
 

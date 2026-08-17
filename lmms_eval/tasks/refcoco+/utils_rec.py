@@ -63,8 +63,11 @@ def parse_float_sequence_within(input_str):
     Returns:
     list: A list of four floats if the pattern is found, or a list of four zeros if the pattern is not found.
     """
-    # Define the regex pattern to find the first instance of four floats within square brackets
-    pattern = r"\[\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\s*\]"
+    # Accept four floats wrapped in matching [] or () delimiters. Models often
+    # emit "(x1, y1, x2, y2)" instead of square brackets; the original regex
+    # accepted only [...] and silently zeroed out every prediction. Same fix as
+    # screenspot/utils_rec.py.
+    pattern = r"[\[\(]\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*[\]\)]"
 
     # Use re.search to find the first match of the pattern in the input string
     match = re.search(pattern, input_str)
@@ -188,7 +191,14 @@ def refcoco_bbox_rec_aggregation_result(results, metric):
         # Compute the specified metric between the ground truth and predicted bounding boxes
         score = scorers[metric](gt_bbox, pred_bbox)
         results_dict[metric].append(score)
-    results_dict[metric] = sum(results_dict[metric]) / len(results_dict[metric])
+    scores = results_dict[metric]
+    if not scores:
+        # No samples for this metric (e.g. when running with --limit); guard against
+        # ZeroDivisionError that would otherwise crash the whole run. Return NaN so an
+        # empty bucket is not conflated with a genuine 0.0 score.
+        eval_logger.warning(f"No samples for metric {metric}; returning NaN")
+        return float("nan")
+    results_dict[metric] = sum(scores) / len(scores)
     print(f"Aggregated {metric} score: {results_dict[metric]}")
     return results_dict[metric]
 

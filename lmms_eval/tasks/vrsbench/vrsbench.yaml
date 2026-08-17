@@ -1,0 +1,5 @@
+group: vrsbench
+task:
+  - vrsbench_vqa
+  - vrsbench_cap
+  - vrsbench_ref

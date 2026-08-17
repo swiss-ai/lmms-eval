@@ -52,7 +52,7 @@ def mmmu_pro_doc_to_text(doc, lmms_eval_specific_kwargs=None):
         return mmmu_doc_to_text_qwen3vl(doc, lmms_eval_specific_kwargs)
 
     post_prompt = lmms_eval_specific_kwargs["post_prompt"]
-    question = doc.get("question", "")
+    question = post_prompt  # vision-only fallback: question and options are rendered in the image
     if "question" in doc and "options" in doc:  # original operation
         question = construct_prompt(doc, post_prompt)
         if config["metadata"]["interleaved_format"]:
@@ -95,7 +95,10 @@ def mmmu_pro_doc_to_visual(doc):
 # MMMU-PRO's all questions are multiple-choice questions
 def mmmu_pro_process_results(doc, results):
     pred = results[0]
-    if "question" in doc and "options" in doc:
+    # The vision split has options/answer but no question column (the
+    # question is rendered into the image), so parsing must not require it —
+    # comparing raw response text against an answer letter scores 0 always.
+    if "options" in doc:
         index2ans, all_choices = get_multi_choice_info(ast.literal_eval(doc["options"]))
         parsed_pred = parse_multi_choice_response(pred, all_choices, index2ans)
     else:

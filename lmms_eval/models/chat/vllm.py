@@ -90,37 +90,33 @@ class VLLM(VLLMSimple):
         batch_size = self.batch_size_per_gpu
         batched_requests = [requests[i : i + batch_size] for i in range(0, len(requests), batch_size)]
         total_elapsed_time = 0
-        sample_token_counts: Optional[TokenCounts] = None
         for batch_requests in batched_requests:
-            batched_messages = []
-            batched_sampling_params = []
             with ThreadPoolExecutor(max_workers=WORKERS) as executor:
                 futures = [executor.submit(self.make_one_request, request) for request in batch_requests]
-                for future in futures:
-                    messages, sampling_params = future.result()
-                    batched_messages.append(messages)
-                    batched_sampling_params.append(sampling_params)
+                # (messages, params) pairs travel together through the TP
+                # sync so each request keeps its own sampling params.
+                batched_pairs = [future.result() for future in futures]
 
             start_time = time.time()
 
-            def _run_chat(request_items: list[tuple[list[dict], dict]]) -> list[str]:
-                inputs = [messages for messages, _ in request_items]
-                sampling_params = [SamplingParams(**params) for _, params in request_items]
+            def _run_chat(pairs: list[tuple]) -> list[tuple]:
                 response = self.client.chat(
-                    sampling_params=sampling_params,
-                    messages=inputs,
+                    sampling_params=[SamplingParams(**params) for _, params in pairs],
+                    messages=[messages for messages, _ in pairs],
                     chat_template=self.chat_template,
+                    **self._chat_template_kwargs(),
+                    **self._chat_tokenization_kwargs(),
                 )
-                return [o.outputs[0].text for o in response]
+                return [(o.outputs[0].text, len(o.outputs[0].token_ids)) for o in response]
 
-            response_text = self._run_tp_synced(list(zip(batched_messages, batched_sampling_params)), _run_chat)
+            chat_outputs = self._run_tp_synced(batched_pairs, _run_chat)
             end_time = time.time()
 
             # Calculate timing metrics for batch
             total_elapsed_time += end_time - start_time
 
-            assert len(response_text) == len(batch_requests)
-            res.extend([GenerationResult(text=resp_text, token_counts=sample_token_counts) for resp_text in response_text])
+            assert len(chat_outputs) == len(batch_requests)
+            res.extend(GenerationResult(text=text, token_counts=TokenCounts(output_tokens=n_out)) for text, n_out in chat_outputs)
             pbar.update(len(batch_requests))
 
         if not self.disable_log_stats:
@@ -146,8 +142,81 @@ class VLLM(VLLMSimple):
         # TODO
         assert False, "GPT4V not support"
 
-    def generate_until_multi_round(self, requests) -> List[str]:
-        raise NotImplementedError("TODO: Implement multi-round generation")
+    def _resolve_sampling_params(self, gen_kwargs: Optional[dict]) -> dict:
+        gen = dict(gen_kwargs or {})
+        gen.pop("until", None)
+        gen["max_new_tokens"] = self._select_max_new_tokens(gen.get("max_new_tokens"))
+        gen.setdefault("temperature", 0)
+        gen.setdefault("top_p", 0.95)
+        return self._build_sampling_params_dict(gen)
+
+    def _to_openai_messages(self, raw_messages: list[dict]) -> list[dict]:
+        chat_messages = ChatMessages(messages=raw_messages)
+        video_kwargs = {
+            "max_pixels": self.max_pixels,
+            "min_pixels": self.min_image_pixels,
+            "max_frames": self.max_frame_num,
+        }
+        if self.fps is not None:
+            video_kwargs["fps"] = self.fps
+        else:
+            video_kwargs["nframes"] = self.nframes
+        return chat_messages.to_openai_messages(video_kwargs=video_kwargs)
+
+    def _chat_once(self, messages: list[dict], params: dict) -> str:
+        response = self.client.chat(
+            sampling_params=[SamplingParams(**params)],
+            messages=[messages],
+            chat_template=self.chat_template,
+        )
+        return response[0].outputs[0].text
+
+    def generate_until_multi_round(self, requests) -> List[List[str]]:
+        """Model-driven multi-round loop.
+
+        Each round we ask the task's ``doc_to_messages`` (with ``round_idx`` /
+        ``previous_output``) for the messages of that round. The auto
+        implementation in ``ConfigurableMessagesTask`` already handles the
+        ``doc_to_text`` -> messages translation, so tasks designed against the
+        ``generate_until_multi_round`` protocol work without any chat-specific
+        plumbing here. Returns ``List[List[str]]`` (per-sample, per-round).
+        """
+        results: List[List[str]] = []
+        pbar = tqdm(total=len(requests), disable=(self.rank != 0), desc="Multi-round Responding")
+
+        for request in requests:
+            ctx, doc_to_messages, gen_kwargs, doc_id, task, split = request.arguments
+            doc = self.task_dict[task][split][doc_id]
+            params = self._resolve_sampling_params(gen_kwargs)
+
+            round_outputs: List[str] = []
+            previous_round_info = None
+            round_idx = 0
+            while True:
+                if round_idx == 0:
+                    raw_messages = doc_to_messages(doc)
+                else:
+                    payload = doc_to_messages(
+                        doc,
+                        round_idx=round_idx,
+                        previous_output=list(round_outputs),
+                        previous_round_info=previous_round_info,
+                    )
+                    if not (isinstance(payload, tuple) and len(payload) == 4):
+                        break
+                    raw_messages, terminal, _prev_out, previous_round_info = payload
+                    if terminal:
+                        break
+
+                messages = self._to_openai_messages(raw_messages)
+                round_outputs.append(self._chat_once(messages, params))
+                round_idx += 1
+
+            results.append(round_outputs)
+            pbar.update(1)
+
+        pbar.close()
+        return results
 
     def get_format_metrics(self):
         metrics = self.client.get_metrics()

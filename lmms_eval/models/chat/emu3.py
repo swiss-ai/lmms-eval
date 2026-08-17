@@ -132,6 +132,9 @@ class EMU3(EMU3EncoderBaseModel):
             chat_messages = [doc_to_messages[idx](self.task_dict[task][split][ids]) for idx, (ids, task, split) in enumerate(zip(doc_id, task, split))]
             chat_messages: List[ChatMessages] = [ChatMessages(**{"messages": message}) for message in chat_messages]
 
+            # Answers land at their sample's index so skipped placeholders and
+            # generated answers cannot interleave out of order.
+            chunk_res = [None] * len(chat_messages)
             # Extract media and text per message
             # EMU3 requires len(images) == len(texts) in understanding mode
             batch_data = []
@@ -154,13 +157,13 @@ class EMU3(EMU3EncoderBaseModel):
                     if self.skip_text_only:
                         skipped_text_only += 1
                         # Add empty placeholder answer for this skipped sample
-                        res.append("")
+                        chunk_res[idx] = ""
                         self.cache_hook.add_partial("generate_until", (ctx[idx], all_gen_kwargs[idx]), "")
                         pbar.update(1)
                         continue
                     else:
                         # EMU3 requires images - add empty answer
-                        res.append("")
+                        chunk_res[idx] = ""
                         self.cache_hook.add_partial("generate_until", (ctx[idx], all_gen_kwargs[idx]), "")
                         pbar.update(1)
                         continue
@@ -171,7 +174,7 @@ class EMU3(EMU3EncoderBaseModel):
                     if self.skip_multi_image:
                         skipped_multi_image += 1
                         # Add empty placeholder answer for this skipped sample
-                        res.append("")
+                        chunk_res[idx] = ""
                         self.cache_hook.add_partial("generate_until", (ctx[idx], all_gen_kwargs[idx]), "")
                         pbar.update(1)
                         continue
@@ -180,16 +183,17 @@ class EMU3(EMU3EncoderBaseModel):
                         img = visual[0]
                         if isinstance(img, str):
                             img = Image.open(img)
-                        batch_data.append({"text": text, "image": img, "context": ctx[idx]})
+                        batch_data.append({"idx": idx, "text": text, "image": img, "context": ctx[idx]})
                 else:
                     # Exactly 1 image - process normally
                     img = visual[0]
                     if isinstance(img, str):
                         img = Image.open(img)
-                    batch_data.append({"text": text, "image": img, "context": ctx[idx]})
+                    batch_data.append({"idx": idx, "text": text, "image": img, "context": ctx[idx]})
 
             # If all samples in batch were skipped, continue to next batch
             if len(batch_data) == 0:
+                res.extend(chunk_res)
                 continue
 
             gen_kwargs = all_gen_kwargs[0]
@@ -246,7 +250,7 @@ class EMU3(EMU3EncoderBaseModel):
                 answers_with_tokens = self.processor.batch_decode(outputs_trimmed, skip_special_tokens=False)
 
             for i, (ans, item, text) in enumerate(zip(answers, batch_data, texts)):
-                res.append(ans)
+                chunk_res[item["idx"]] = ans
                 self.cache_hook.add_partial("generate_until", (item["context"], gen_kwargs), ans)
                 pbar.update(1)
 
@@ -264,6 +268,8 @@ class EMU3(EMU3EncoderBaseModel):
 
                 eval_logger.debug(f"Question: {text}")
                 eval_logger.debug(f"Model Response: {ans}")
+
+            res.extend(chunk_res)
 
         # Reorder results back to original unsorted form
         res = re_ords.get_original(res)

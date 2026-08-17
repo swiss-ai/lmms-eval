@@ -1,0 +1,44 @@
+dataset_path: json
+dataset_kwargs:
+  data_files:
+    test: hf://datasets/xiang709/VRSBench/VRSBench_EVAL_Cap.json
+task: vrsbench_cap
+test_split: test
+output_type: generate_until
+doc_to_visual: !function utils.vrsbench_doc_to_visual
+doc_to_text: !function utils.vrsbench_cap_doc_to_text
+doc_to_target: !function utils.vrsbench_cap_doc_to_target
+generation_kwargs:
+  max_new_tokens: 256
+  temperature: 0
+  top_p: 1.0
+  num_beams: 1
+  do_sample: false
+process_results: !function utils.vrsbench_cap_process_results
+metric_list:
+  - metric: cap_Bleu_4
+    aggregation: !function utils.vrsbench_cap_bleu4
+    higher_is_better: true
+  - metric: cap_Bleu_3
+    aggregation: !function utils.vrsbench_cap_bleu3
+    higher_is_better: true
+  - metric: cap_Bleu_2
+    aggregation: !function utils.vrsbench_cap_bleu2
+    higher_is_better: true
+  - metric: cap_Bleu_1
+    aggregation: !function utils.vrsbench_cap_bleu1
+    higher_is_better: true
+  - metric: cap_METEOR
+    aggregation: !function utils.vrsbench_cap_meteor
+    higher_is_better: true
+  - metric: cap_ROUGE_L
+    aggregation: !function utils.vrsbench_cap_rouge
+    higher_is_better: true
+  - metric: cap_CIDEr
+    aggregation: !function utils.vrsbench_cap_cider
+    higher_is_better: true
+lmms_eval_specific_kwargs:
+  default:
+    prompt: "Describe the image in detail."
+metadata:
+  - version: 0.0

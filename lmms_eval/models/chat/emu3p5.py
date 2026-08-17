@@ -12,8 +12,6 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 import torch
-
-# Import Emu3.5 classes (sys.path set up by EMU3p5EncoderBaseModel import above)
 from emu3p5 import Emu3Config, Emu3ForCausalLM
 from loguru import logger as eval_logger
 from PIL import Image
@@ -31,6 +29,11 @@ from lmms_eval.models.model_utils.emu3p5.emu3p5_tokenizer_loader import (
     load_emu3p5_tokenizer,
 )
 from lmms_eval.protocol import ChatMessages
+
+# The base-model import installs external/Emu3.5/src on sys.path; it must run
+# before the emu3p5 import below (the registry imports this module directly).
+from lmms_eval.models.emu3p5_encoder_base_model import EMU3p5EncoderBaseModel  # noqa: F401  isort: skip
+
 
 # Path to EMU3.5 tokenizer directory
 _current_file = Path(__file__).resolve()
@@ -168,6 +171,9 @@ class EMU3_5(EMU3p5EncoderBaseModel):
             # Convert to ChatMessages protocol
             chat_messages: List[ChatMessages] = [ChatMessages(**{"messages": message}) for message in chat_messages]
 
+            # Answers land at their sample's index so skipped placeholders and
+            # generated answers cannot interleave out of order.
+            chunk_res = [None] * len(chat_messages)
             # Extract media and track per-sample image counts
             sample_data = []
             for idx, messages in enumerate(chat_messages):
@@ -187,13 +193,13 @@ class EMU3_5(EMU3p5EncoderBaseModel):
                     if self.skip_text_only:
                         skipped_text_only += 1
                         # Add empty placeholder answer for this skipped sample
-                        res.append("")
+                        chunk_res[idx] = ""
                         self.cache_hook.add_partial("generate_until", (ctx[idx], all_gen_kwargs[idx]), "")
                         pbar.update(1)
                         continue
                     else:
                         # EMU3.5 requires images - add empty answer
-                        res.append("")
+                        chunk_res[idx] = ""
                         self.cache_hook.add_partial("generate_until", (ctx[idx], all_gen_kwargs[idx]), "")
                         pbar.update(1)
                         continue
@@ -204,19 +210,20 @@ class EMU3_5(EMU3p5EncoderBaseModel):
                     if self.skip_multi_image:
                         skipped_multi_image += 1
                         # Add empty placeholder answer for this skipped sample
-                        res.append("")
+                        chunk_res[idx] = ""
                         self.cache_hook.add_partial("generate_until", (ctx[idx], all_gen_kwargs[idx]), "")
                         pbar.update(1)
                         continue
                     else:
                         # If not skipping, take only the first image
-                        sample_data.append({"text": text, "image": visual[0], "context": ctx[idx]})
+                        sample_data.append({"idx": idx, "text": text, "image": visual[0], "context": ctx[idx]})
                 else:
                     # Exactly 1 image - process normally
-                    sample_data.append({"text": text, "image": visual[0], "context": ctx[idx]})
+                    sample_data.append({"idx": idx, "text": text, "image": visual[0], "context": ctx[idx]})
 
             # If all samples in batch were skipped, continue to next batch
             if len(sample_data) == 0:
+                res.extend(chunk_res)
                 continue
 
             gen_kwargs = all_gen_kwargs[0]
@@ -281,7 +288,7 @@ class EMU3_5(EMU3p5EncoderBaseModel):
                 answers_with_tokens = self.processor.batch_decode(outputs_trimmed, skip_special_tokens=False)
 
             for i, (ans, item, text) in enumerate(zip(answers, sample_data, texts)):
-                res.append(ans)
+                chunk_res[item["idx"]] = ans
                 self.cache_hook.add_partial("generate_until", (item["context"], gen_kwargs), ans)
                 pbar.update(1)
 
@@ -299,6 +306,8 @@ class EMU3_5(EMU3p5EncoderBaseModel):
 
                 eval_logger.debug(f"Question: {text}")
                 eval_logger.debug(f"Model Response: {ans}")
+
+            res.extend(chunk_res)
 
         # Reorder results back to original unsorted form
         res = re_ords.get_original(res)

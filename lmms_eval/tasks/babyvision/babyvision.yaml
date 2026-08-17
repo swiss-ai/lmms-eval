@@ -22,6 +22,9 @@ metric_list:
   - metric: babyvision_overall_accuracy
     aggregation: !function utils.babyvision_aggregate_results
     higher_is_better: true
+  - metric: babyvision_grader_failure_rate
+    aggregation: !function utils.babyvision_aggregate_failure_rate
+    higher_is_better: false
 
 lmms_eval_specific_kwargs:
   default:

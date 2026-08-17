@@ -15,7 +15,7 @@ def pope_doc_to_text(doc, lmms_eval_specific_kwargs):
 
 
 def pope_process_results(doc, results):
-    pred = results[0].lower().strip()
+    pred = results[0].lower().strip().rstrip(".!,;:")
     gt_ans = doc["answer"].lower().strip()
     assert gt_ans in ["yes", "no"]
     score = 1.0 if pred == gt_ans else 0.0

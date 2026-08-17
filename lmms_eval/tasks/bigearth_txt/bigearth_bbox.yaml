@@ -1,0 +1,30 @@
+dataset_path: parquet
+dataset_kwargs:
+  data_files:
+    test: hf://datasets/BIFOLD-BigEarthNetv2-0/BigEarthNet.txt/BigEarthNet.txt.parquet
+process_docs: !function utils.bigearth_bbox_filter_docs
+task: bigearth_bbox
+test_split: test
+output_type: generate_until
+doc_to_visual: !function utils.bigearth_doc_to_visual
+doc_to_text: !function utils.bigearth_bbox_doc_to_text
+doc_to_target: !function utils.bigearth_bbox_doc_to_target
+generation_kwargs:
+  max_new_tokens: 32
+  temperature: 0
+  top_p: 1.0
+  num_beams: 1
+  do_sample: false
+process_results: !function utils.bigearth_bbox_process_results
+metric_list:
+  - metric: bbox_acc50
+    aggregation: !function utils.bigearth_bbox_aggregate
+    higher_is_better: true
+  - metric: strict_bbox_acc50
+    aggregation: !function utils.bigearth_bbox_aggregate
+    higher_is_better: true
+lmms_eval_specific_kwargs:
+  default:
+    post_prompt: "\nOutput the bounding box as [x1 y1, x2 y2] with coordinates normalized to [0, 1]."
+metadata:
+  - version: 0.0

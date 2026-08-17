@@ -85,7 +85,11 @@ class MultiChoiceRegexFilter(RegexFilter):
                 next_alpha = chr(ord(next_alpha) + 1)
             fallback_regex = re.compile("|".join(fallback_regexes))
             without_paren_fallback_regex = "|".join(without_paren_fallback_regexes)
-            without_paren_fallback_regex = re.compile(f":[\s]*({without_paren_fallback_regex})")
+            # Accept a leading bare letter ("B", "A: paralysis of ...") as well as
+            # the original ": B" form. The gold label is "(A)", so a model that
+            # answers with the letter alone was otherwise scored wrong for a
+            # correct answer.
+            without_paren_fallback_regex = re.compile(rf"(?:^|:)\s*({without_paren_fallback_regex})\b")
 
             filtered = []
             for resp in r:

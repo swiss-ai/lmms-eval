@@ -1,3 +1,5 @@
+import base64
+import io
 import os
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
@@ -12,6 +14,7 @@ from lmms_eval.models.model_utils.media_encoder import encode_image_to_base64
 VideoReader, _has_decord = optional_import("decord", "VideoReader")
 cpu, _ = optional_import("decord", "cpu")
 fetch_video, _has_qwen_vl = optional_import("qwen_vl_utils", "fetch_video")
+sf, _has_soundfile = optional_import("soundfile")
 
 
 class ChatTextContent(BaseModel):
@@ -27,6 +30,8 @@ class ChatImageContent(BaseModel):
 class ChatVideoContent(BaseModel):
     type: Literal["video"] = "video"
     url: Any
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
 
 
 class ChatAudioContent(BaseModel):
@@ -45,6 +50,118 @@ class ChatMessage(BaseModel):
 class ChatMessages(BaseModel):
     messages: List[ChatMessage]
 
+    @staticmethod
+    def _coerce_audio_array(audio: Any) -> np.ndarray:
+        if hasattr(audio, "samples"):
+            audio = audio.samples
+        elif hasattr(audio, "array"):
+            audio = audio.array
+        elif hasattr(audio, "data"):
+            audio = audio.data
+        if hasattr(audio, "detach"):
+            audio = audio.detach()
+        if hasattr(audio, "cpu"):
+            audio = audio.cpu()
+        if hasattr(audio, "numpy"):
+            audio = audio.numpy()
+        audio_array = np.asarray(audio, dtype=np.float32)
+        if audio_array.ndim == 0:
+            raise ValueError("Audio content must contain at least one sample.")
+        if audio_array.ndim == 2 and audio_array.shape[0] <= 8 and audio_array.shape[1] > audio_array.shape[0]:
+            audio_array = audio_array.T
+        return audio_array
+
+    @classmethod
+    def _audio_object_to_data_url(cls, audio: Any, sampling_rate: int | None) -> str:
+        hf_encoded = getattr(audio, "_hf_encoded", None)
+        if isinstance(hf_encoded, dict):
+            encoded_bytes = hf_encoded.get("bytes")
+            if isinstance(encoded_bytes, (bytes, bytearray)):
+                audio_b64 = base64.b64encode(bytes(encoded_bytes)).decode("utf-8")
+                mime_type = cls._audio_mime_type_from_path(hf_encoded.get("path"))
+                return f"data:{mime_type};base64,{audio_b64}"
+
+        if hasattr(audio, "get_all_samples"):
+            decoded_audio = audio.get_all_samples()
+            if sampling_rate is None:
+                sampling_rate = getattr(decoded_audio, "sample_rate", None) or getattr(
+                    decoded_audio,
+                    "sampling_rate",
+                    None,
+                )
+            return cls._audio_object_to_data_url(decoded_audio, sampling_rate)
+
+        if hasattr(audio, "decode"):
+            decoded_audio = audio.decode()
+            if sampling_rate is None:
+                sampling_rate = getattr(decoded_audio, "sample_rate", None) or getattr(
+                    decoded_audio,
+                    "sampling_rate",
+                    None,
+                )
+            return cls._audio_object_to_data_url(decoded_audio, sampling_rate)
+
+        if sampling_rate is None:
+            sampling_rate = getattr(audio, "sample_rate", None) or getattr(
+                audio,
+                "sampling_rate",
+                None,
+            )
+        if sampling_rate is None:
+            raise ValueError("In-memory audio content must include a sampling rate.")
+        audio_array = cls._coerce_audio_array(audio)
+        return cls._audio_array_to_data_url(audio_array, int(sampling_rate))
+
+    @staticmethod
+    def _audio_mime_type_from_path(path: Any) -> str:
+        if not isinstance(path, str):
+            return "audio/wav"
+
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".wav":
+            return "audio/wav"
+        if ext == ".mp3":
+            return "audio/mpeg"
+        if ext == ".m4a":
+            return "audio/mp4"
+        if ext == ".aac":
+            return "audio/aac"
+        if ext in {".ogg", ".opus"}:
+            return "audio/ogg"
+        if ext == ".flac":
+            return "audio/flac"
+        return "audio/wav"
+
+    @staticmethod
+    def _audio_array_to_data_url(audio_array: np.ndarray, sampling_rate: int) -> str:
+        if sf is None:
+            raise ImportError("soundfile is required to encode in-memory audio for chat messages.")
+
+        wav_buffer = io.BytesIO()
+        sf.write(wav_buffer, audio_array, sampling_rate, format="WAV")
+        audio_b64 = base64.b64encode(wav_buffer.getvalue()).decode("utf-8")
+        return f"data:audio/wav;base64,{audio_b64}"
+
+    @classmethod
+    def _audio_to_data_url(cls, audio: Any) -> str:
+        if isinstance(audio, str):
+            return audio
+
+        if isinstance(audio, dict):
+            if "array" in audio:
+                if audio.get("sampling_rate") is None and audio.get("sample_rate") is None:
+                    raise ValueError("Audio dicts with an 'array' must include " "'sampling_rate' or 'sample_rate'.")
+                audio_array = cls._coerce_audio_array(audio["array"])
+                sampling_rate = int(audio.get("sampling_rate") or audio.get("sample_rate"))
+                return cls._audio_array_to_data_url(audio_array, sampling_rate)
+            elif isinstance(audio.get("path"), str):
+                return audio["path"]
+            elif isinstance(audio.get("url"), str):
+                return audio["url"]
+            else:
+                raise TypeError("Audio dict must contain 'array', 'path', or 'url'.")
+        return cls._audio_object_to_data_url(audio, None)
+
     def extract_media(self):
         images = []
         videos = []
@@ -61,9 +178,15 @@ class ChatMessages(BaseModel):
 
         return images, videos, audios
 
-    def to_hf_messages(self, video_kwargs: Optional[Dict[str, str]] = None):
+    def to_hf_messages(
+        self,
+        video_kwargs: Optional[Dict[str, str]] = None,
+        image_kwargs: Optional[Dict[str, str]] = None,
+    ):
         if video_kwargs is None:
             video_kwargs = {}
+        if image_kwargs is None:
+            image_kwargs = {}
         _num_frames = video_kwargs.get("nframes", 32)  # noqa: F841
         hf_messages = []
         for message in self.messages:
@@ -72,49 +195,72 @@ class ChatMessages(BaseModel):
                 if content.type == "text":
                     hf_message["content"].append({"type": "text", "text": content.text})
                 elif content.type == "image":
-                    hf_message["content"].append({"type": "image", "image": content.url})
+                    hf_message["content"].append({"type": "image", "image": content.url, **image_kwargs})
                 elif content.type == "video":
-                    hf_message["content"].append({"type": "video", "video": content.url, **video_kwargs})
+                    video_item = {"type": "video", "video": content.url, **video_kwargs}
+                    if content.start_time is not None:
+                        video_item["video_start"] = content.start_time
+                    if content.end_time is not None:
+                        video_item["video_end"] = content.end_time
+                    hf_message["content"].append(video_item)
                 elif content.type == "audio":
                     hf_message["content"].append({"type": "audio", "audio": content.url})
             hf_messages.append(hf_message)
         return hf_messages
 
-    def to_openai_messages(self, video_kwargs: Optional[Dict[str, str]] = None):
-        if video_kwargs is None:
-            video_kwargs = {}
-        openai_messages = []
-        encode_cache: Dict[Tuple[object, ...], str] = {}
+    @staticmethod
+    def _encode_settings() -> Tuple[str, str, Optional[int]]:
         image_format = os.getenv("LMMS_IMAGE_ENCODE_FORMAT", "PNG").upper()
         mime_type = f"image/{'jpeg' if image_format == 'JPG' else image_format.lower()}"
         quality = int(os.getenv("LMMS_IMAGE_JPEG_QUALITY", "85")) if image_format in {"JPEG", "JPG", "WEBP"} else None
+        return image_format, mime_type, quality
+
+    def _image_url_entry(self, image: Union[Image.Image, str], image_format: str, mime_type: str, quality: Optional[int]) -> Dict[str, Any]:
+        return {
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime_type};base64,{self.encode_image(image, image_format, quality)}"},
+        }
+
+    def to_openai_messages(self, video_kwargs: Optional[Dict[str, str]] = None, pass_video_url: bool = False):
+        if video_kwargs is None:
+            video_kwargs = {}
+        openai_messages = []
+        image_format, mime_type, quality = self._encode_settings()
         for message in self.messages:
             openai_message = {"role": message.role, "content": []}
             for content in message.content:
                 if content.type == "text":
                     openai_message["content"].append({"type": "text", "text": content.text})
                 elif content.type == "image":
-                    openai_message["content"].append(
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime_type};base64,{self.encode_image(content.url, encode_cache, image_format, quality)}"},
-                        }
-                    )
+                    openai_message["content"].append(self._image_url_entry(content.url, image_format, mime_type, quality))
                 elif content.type == "video":
+                    if pass_video_url:
+                        # Forward the video as a URL so the server can decode it (e.g., vLLM's
+                        # media_io_kwargs). Local paths are normalized to file:// so absolute-time
+                        # frame indexing is preserved instead of being lost in client-side decoding.
+                        url = content.url
+                        if not url.startswith(("http://", "https://", "file://", "data:")):
+                            url = f"file://{os.path.abspath(url)}"
+                        openai_message["content"].append({"type": "video_url", "video_url": {"url": url}})
+                        continue
                     if fetch_video is None:
                         raise ImportError("qwen_vl_utils is required for video processing. Please install it with: pip install qwen-vl-utils")
-                    video_input = fetch_video({"type": "video", "video": content.url, **video_kwargs})
+                    video_arg = {"type": "video", "video": content.url, **video_kwargs}
+                    if content.start_time is not None:
+                        video_arg["video_start"] = content.start_time
+                    if content.end_time is not None:
+                        video_arg["video_end"] = content.end_time
+                    video_input = fetch_video(video_arg)
                     for frame in video_input:
                         image = Image.fromarray(frame.permute(1, 2, 0).numpy().astype(np.uint8))
-                        openai_message["content"].append(
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:{mime_type};base64,{self.encode_image(image, encode_cache, image_format, quality)}"},
-                            }
-                        )
-                # TODO, audio hasn't been implemented yet
+                        openai_message["content"].append(self._image_url_entry(image, image_format, mime_type, quality))
                 elif content.type == "audio":
-                    openai_message["content"].append({"type": "audio_url", "audio_url": {"url": content.url}})
+                    openai_message["content"].append(
+                        {
+                            "type": "audio_url",
+                            "audio_url": {"url": self._audio_to_data_url(content.url)},
+                        }
+                    )
             openai_messages.append(openai_message)
         return openai_messages
 
@@ -122,27 +268,24 @@ class ChatMessages(BaseModel):
         if video_kwargs is None:
             video_kwargs = {}
         openai_messages = []
-        encode_cache: Dict[Tuple[object, ...], str] = {}
-        image_format = os.getenv("LMMS_IMAGE_ENCODE_FORMAT", "PNG").upper()
-        mime_type = f"image/{'jpeg' if image_format == 'JPG' else image_format.lower()}"
-        quality = int(os.getenv("LMMS_IMAGE_JPEG_QUALITY", "85")) if image_format in {"JPEG", "JPG", "WEBP"} else None
+        image_format, mime_type, quality = self._encode_settings()
         for message in self.messages:
             openai_message = {"role": message.role, "content": []}
             for content in message.content:
                 if content.type == "text":
                     openai_message["content"].append({"type": "text", "text": content.text})
                 elif content.type == "image":
-                    openai_message["content"].append(
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime_type};base64,{self.encode_image(content.url, encode_cache, image_format, quality)}"},
-                        }
-                    )
+                    openai_message["content"].append(self._image_url_entry(content.url, image_format, mime_type, quality))
                 elif content.type == "video":
                     if fetch_video is None:
                         raise ImportError("qwen_vl_utils is required for video processing. Please install it with: pip install qwen-vl-utils")
+                    video_arg = {"type": "video", "video": content.url, **video_kwargs}
+                    if content.start_time is not None:
+                        video_arg["video_start"] = content.start_time
+                    if content.end_time is not None:
+                        video_arg["video_end"] = content.end_time
                     video_input, fps = fetch_video(
-                        {"type": "video", "video": content.url, **video_kwargs},
+                        video_arg,
                         return_video_metadata=True,
                         return_video_sample_fps=True,
                     )
@@ -151,15 +294,14 @@ class ChatMessages(BaseModel):
                     for frame, timestamp in zip(frames, timestamps):
                         image = Image.fromarray(frame.permute(1, 2, 0).numpy().astype(np.uint8))
                         openai_message["content"].append({"type": "text", "text": f"<{timestamp:.1f} seconds>"})
-                        openai_message["content"].append(
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:{mime_type};base64,{self.encode_image(image, encode_cache, image_format, quality)}"},
-                            }
-                        )
-                # TODO, audio hasn't been implemented yet
+                        openai_message["content"].append(self._image_url_entry(image, image_format, mime_type, quality))
                 elif content.type == "audio":
-                    openai_message["content"].append({"type": "audio_url", "audio_url": {"url": content.url}})
+                    openai_message["content"].append(
+                        {
+                            "type": "audio_url",
+                            "audio_url": {"url": self._audio_to_data_url(content.url)},
+                        }
+                    )
             openai_messages.append(openai_message)
         return openai_messages
 
@@ -179,7 +321,6 @@ class ChatMessages(BaseModel):
     def encode_image(
         self,
         image: Union[Image.Image, str],
-        cache: Optional[Dict[Tuple[object, ...], str]] = None,
         image_format: str = "PNG",
         quality: Optional[int] = None,
     ):
@@ -190,6 +331,5 @@ class ChatMessages(BaseModel):
             convert_rgb=normalized_image_format in {"JPEG", "JPG", "WEBP"},
             quality=quality,
             copy_if_pil=False,
-            cache=cache,
             use_path_cache=True,
         )

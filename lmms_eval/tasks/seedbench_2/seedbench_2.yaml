@@ -1,4 +1,4 @@
-dataset_path: lmms-lab/SEED-Bench-2
+dataset_path: lmms-lab-encoder/SEED-Bench-2
 dataset_kwargs:
   token: True
 task: "seedbench_2"
@@ -41,12 +41,15 @@ metadata:
   - version: 0.0
 
 lmms_eval_specific_kwargs:
+  default:
+    img_token : <image>
+    post_prompt : "Answer with the option's letter from the given choices directly."
   llava :
     img_token : <image>
     post_prompt : "Answer with the option's letter from the given choices directly."
   llava_onevision :
     img_token : <image>
-    post_prompt : "Answer with the option's letter from the given choices directly."    
+    post_prompt : "Answer with the option's letter from the given choices directly."
   gpt4V :
     img_token : <image>
     post_prompt : "Answer with the option's letter from the given choices directly."
