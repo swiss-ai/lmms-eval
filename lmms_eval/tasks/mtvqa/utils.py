@@ -35,33 +35,38 @@ def _parse_qa_pairs(value):
     return normalized_pairs
 
 
+def _flatten_batch(batch, indices):
+    columns = {"question_id": [], "id": [], "category": [], "question": [], "answer": [], "image": []}
+    for row, idx in enumerate(indices):
+        sample_id = str(batch.get("id", [""] * len(indices))[row]).strip() or f"mtvqa_{idx}"
+        category = str(batch.get("lang", [""] * len(indices))[row]).strip() or "unknown"
+        for qa_idx, qa in enumerate(_parse_qa_pairs(batch["qa_pairs"][row])):
+            columns["question_id"].append(f"{sample_id}_{qa_idx}")
+            columns["id"].append(sample_id)
+            columns["category"].append(category)
+            columns["question"].append(qa["question"])
+            columns["answer"].append(qa["answer"])
+            columns["image"].append(batch["image"][row])
+    return columns
+
+
 def mtvqa_process_docs(dataset: datasets.Dataset) -> datasets.Dataset:
-    flattened_docs = []
-    for idx, doc in enumerate(dataset):
-        doc_dict = dict(doc)
-        sample_id = str(doc_dict.get("id", "")).strip() or f"mtvqa_{idx}"
-
-        category = str(doc_dict.get("lang", "")).strip() or "unknown"
-        qa_pairs = _parse_qa_pairs(doc_dict.get("qa_pairs"))
-
-        for qa_idx, qa in enumerate(qa_pairs):
-            flattened_docs.append(
-                {
-                    "question_id": f"{sample_id}_{qa_idx}",
-                    "id": sample_id,
-                    "category": category,
-                    "question": qa["question"],
-                    "answer": qa["answer"],
-                    "image": doc_dict.get("image"),
-                }
-            )
-
-    if not flattened_docs:
+    # Flattening with map keeps the result disk-backed. Building it with
+    # Dataset.from_list instead makes datasets fingerprint the whole in-memory
+    # table, and since each image is duplicated across its QA pairs that hash
+    # exceeds pyarrow's 2GB offset limit and aborts the task.
+    flattened = dataset.map(
+        _flatten_batch,
+        with_indices=True,
+        batched=True,
+        batch_size=16,
+        remove_columns=dataset.column_names,
+    )
+    if len(flattened) == 0:
         eval_logger.warning("[mtvqa] No samples found after flattening qa_pairs.")
-        return dataset.select(range(0))
-
-    eval_logger.info("[mtvqa] Loaded {} QA pairs from {} images.", len(flattened_docs), len(dataset))
-    return datasets.Dataset.from_list(flattened_docs)
+    else:
+        eval_logger.info("[mtvqa] Loaded {} QA pairs from {} images.", len(flattened), len(dataset))
+    return flattened
 
 
 def _to_rgb_image(image_value):
