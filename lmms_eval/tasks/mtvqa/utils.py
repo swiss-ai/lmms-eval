@@ -7,12 +7,6 @@ from PIL import Image
 
 MTVQA_PROMPT_SUFFIX = "\nAnswer the question using a word or phrase in the language of the question."
 
-# MTVQA ships one image per row with several QA pairs, so flattening copies the
-# image into every pair. Carrying those copies makes the flattened table exceed
-# pyarrow's 2GB offset limit when datasets fingerprints it, so the flattened
-# rows reference the source row instead and the image is resolved on demand.
-_SOURCE_DATASET = None
-
 
 def _parse_qa_pairs(value):
     if isinstance(value, list):
@@ -42,11 +36,8 @@ def _parse_qa_pairs(value):
 
 
 def mtvqa_process_docs(dataset: datasets.Dataset) -> datasets.Dataset:
-    global _SOURCE_DATASET
-    _SOURCE_DATASET = dataset
-    metadata = dataset.remove_columns([c for c in ("image",) if c in dataset.column_names])
     flattened_docs = []
-    for idx, doc in enumerate(metadata):
+    for idx, doc in enumerate(dataset):
         doc_dict = dict(doc)
         sample_id = str(doc_dict.get("id", "")).strip() or f"mtvqa_{idx}"
 
@@ -61,7 +52,7 @@ def mtvqa_process_docs(dataset: datasets.Dataset) -> datasets.Dataset:
                     "category": category,
                     "question": qa["question"],
                     "answer": qa["answer"],
-                    "source_row": idx,
+                    "image": doc_dict.get("image"),
                 }
             )
 
@@ -88,8 +79,6 @@ def _to_rgb_image(image_value):
 
 def mtvqa_doc_to_visual(doc):
     image_value = doc.get("image")
-    if image_value is None and _SOURCE_DATASET is not None and doc.get("source_row") is not None:
-        image_value = _SOURCE_DATASET[int(doc["source_row"])].get("image")
     if image_value is None:
         sample_id = str(doc.get("id", "")).strip()
         raise KeyError(f"Missing MTVQA image payload for sample id: {sample_id}")
