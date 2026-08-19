@@ -31,6 +31,13 @@ class Apertus1p5VLLM(VLLM):
     """
 
     def __init__(self, *args, **kwargs):
+        # The symmetric head lets visual/audio tokens win the argmax and derail
+        # generations (measured: gsm8k 74.2 vs 79.8 with a text-only head).
+        # Masking engine-side reproduces the Hub release's truncated-head
+        # semantics without touching the checkpoint; allowed_token_ids cannot
+        # do this (vLLM caps it at 1024 ids).
+        if os.environ.get("APERTUS_TEXT_ONLY_OUTPUT_VOCAB"):
+            kwargs.setdefault("logits_processors", ["apertus_text_only_logits:ApertusTextOnlyLogits"])
         self.enable_thinking = kwargs.pop("enable_thinking", False)
         tokenizer_path = kwargs.get("tokenizer") or os.environ.get("APERTUS_TOKENIZER_PATH") or DEFAULT_TOKENIZER_PATH
         super().__init__(*args, **kwargs)
@@ -48,6 +55,7 @@ class Apertus1p5VLLM(VLLM):
         # A deliberation run that silently loses this flag still completes and
         # looks healthy, so record what the template will actually receive.
         eval_logger.info(f"apertus_1p5_vllm: enable_thinking={self.enable_thinking} tokenizer={tokenizer_path}")
+        eval_logger.info(f"apertus_1p5_vllm: text_only_output_vocab={os.environ.get('APERTUS_TEXT_ONLY_OUTPUT_VOCAB') or 'off'}")
 
     def _build_sampling_params_dict(self, gen_kwargs):
         params = super()._build_sampling_params_dict(gen_kwargs)
