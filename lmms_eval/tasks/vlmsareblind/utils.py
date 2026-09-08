@@ -44,7 +44,7 @@ def parse_response(response: str, task: str) -> str | None:
 
     Return None if the response does not follow the expected format.
     """
-    response = response.strip().lower().rstrip(".!,;:")
+    response = response.strip().lower()
     task = task.lower()
 
     if task == "touching circles":
@@ -57,7 +57,7 @@ def parse_response(response: str, task: str) -> str | None:
             return match.group(1)
 
     if task == "circled letter":
-        match = re.search(r"\{?/?([a-z])\}?", response)
+        match = re.search(r"\{?([a-z])\}?", response)
         if match:
             return match.group(1)
 
@@ -68,10 +68,7 @@ def parse_response(response: str, task: str) -> str | None:
         match = re.search(r"\((\d+)\s*,\s*(\d+)\)", response)  # (3,4), (3, 4), etc.
         if match:
             return f"{match.group(1)},{match.group(2)}"
-        match = re.search(r"rows=\{(\d+)\}\scolumns=\{(\d+)\}", response)  # rows={3} columns={4}
-        if match:
-            return f"{match.group(1)},{match.group(2)}"
-        match = re.match(r"^(\d+)\s*,\s*(\d+)$", response)  # 3,3 or 3, 4
+        match = re.search(r"rows=\{(\d+)\}\scolumns=\{(\d+)\}", response)  # rows={3} columns={4}, rows={3} columns={4}, etc.
         if match:
             return f"{match.group(1)},{match.group(2)}"
 
@@ -109,8 +106,8 @@ def vlmsareblind_aggregate_by_task(results: list[dict]) -> dict[str, float]:
         if is_correct:
             task_correct[task] += 1
 
-    task_accuracy = {task: task_correct[task] / task_total[task] for task in task_total}
-    task_accuracy["task_mean"] = sum(task_accuracy.values()) / len(task_accuracy)
+    task_accuracy = {task: task_correct[task] / total for task, total in task_total.items()}
+    task_accuracy["task_mean"] = sum(task_accuracy.values()) / len(task_accuracy) if task_accuracy else 0.0
 
     return task_accuracy
 

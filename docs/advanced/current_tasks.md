@@ -49,6 +49,12 @@ python -m lmms_eval --tasks list_with_num
 - [ConBench](https://github.com/foundation-multimodal-models/ConBench) (conbench)
 - [CountBench](https://huggingface.co/datasets/vikhyatk/CountBenchQA) (countbench)
 - [CV-Bench](https://github.com/nyu-visionx/CV-Bench) (cv_bench)
+- [C4 Bench](https://arxiv.org/abs/2608.06501) (c4_bench)
+  - Image-only identification (c4_bench_h0)
+  - Cross-concept hint (c4_bench_h1)
+  - Candidate-constrained identification (c4_bench_h4)
+  - Free answer and explanation (c4_bench_e0)
+  - Gold-answer explanation (c4_bench_e1)
 - [DetailCaps-4870](https://github.com/foundation-multimodal-models/CAPTURE) (detailcaps)
 - [FSC-147](https://github.com/cvlab-stonybrook/LearningToCountEverything) (fsc147)
 - [Flickr30K](https://github.com/BryanPlummer/flickr30k_entities) (flickr30k)
@@ -280,9 +286,17 @@ python -m lmms_eval --tasks list_with_num
 - [EgoPlan](https://github.com/ChenYi99/EgoPlan) (egoplan)
 - [EgoTempo](https://github.com/google-research-datasets/egotempo) (egotempo)
 - [EgoThink](https://github.com/AdaCheng/EgoThink) (egothink)
+- [HERBench](https://huggingface.co/datasets/DanBenAmi/HERBench) (herbench)
+  - Full set, 27,631 questions / 335 videos (herbench_full)
+  - Lite subset, 2,000 questions / 68 videos (herbench_lite)
+  - Refined lite subset, 1,971 questions / 68 videos (herbench_lite_v2)
 - [IntPhys2](https://arxiv.org/abs/2506.09849) (intphys2)
   - intphys2_debug
 - [MLVU](https://github.com/JUNJIE99/MLVU) (mlvu)
+- [MMR-V](https://huggingface.co/datasets/JokerJan/MMR-VBench) (mmr_v)
+  - Direct answer (mmr_v)
+  - Chain-of-thought (mmr_v_cot)
+  - Both variants (mmr_v_all)
 - [MMT-Bench](https://mmt-bench.github.io/) (mmt)
   - MMT Validation (mmt_val)
   - MMT Test (mmt_test)
@@ -336,6 +350,7 @@ python -m lmms_eval --tasks list_with_num
 - [SIS-Bench](https://huggingface.co/datasets/choucsan/SIS-Bench) (sis_bench)
 - [MINERVA](https://arxiv.org/abs/2505.00681) (minerva)
 - [VANTAGE-Bench](https://huggingface.co/datasets/nvidia/PhysicalAI-VANTAGE-Bench) (vantage_vqa) - Physical AI video VQA
+- [VCRBench](https://huggingface.co/datasets/pritamqu/VCRBench) (vcrbench) - Causal step ordering over procedural video ([code](https://github.com/pritamqu/VCRBench))
 - [Video-ChatGPT](https://github.com/mbzuai-oryx/Video-ChatGPT) (videochatgpt)
   - Video-ChatGPT Generic (videochatgpt_gen)
   - Video-ChatGPT Temporal (videochatgpt_temporal)
@@ -367,6 +382,7 @@ python -m lmms_eval --tasks list_with_num
 - [LEMONADE](https://huggingface.co/datasets/amathislab/LEMONADE) (lemonade)
 - [LongTimescope](https://longtimescope.github.io/) (longtimescope)
 - [LongVT](https://longvt-bench.github.io/) (longvt) - Tool-based long video understanding
+- [LongVideo-Reason](https://huggingface.co/datasets/LongVideo-Reason/longvideo-reason) (longvideo_reason) - Long-video reasoning over temporal, goal, spatial and plot perspectives ([code](https://github.com/NVlabs/Long-RL))
 - [LongVideoBench](https://github.com/longvideobench/LongVideoBench) (longvideobench)
 - [NEPTUNE](https://github.com/google-deepmind/neptune) (neptune)
   - Video-path subsets: neptune_full_v, neptune_mma_v, neptune_mmh_v
@@ -385,6 +401,10 @@ python -m lmms_eval --tasks list_with_num
   - temporalbench_long_qa
   - temporalbench_short_caption
 - [Timescope](https://github.com/Timescope/Timescope) (timescope)
+- [VRBench](https://huggingface.co/datasets/OpenGVLab/VRBench) (vrbench) - Multi-step reasoning over long narrative video ([code](https://github.com/OpenGVLab/VRBench))
+  - Multiple-choice outcome QA (vrbench_mcq)
+  - LLM-judged reasoning process (vrbench_process)
+  - Both variants (vrbench)
 
 ### Video Captioning & Description
 - [Vatex](https://eric-xw.github.io/vatex-website/index.html) (vatex)
@@ -596,6 +616,7 @@ python -m lmms_eval --tasks list_with_num
 | `vllm` | VLLM | vLLM backend |
 | `vllm_generate` | VLLMGenerate | vLLM generation mode |
 | `sglang` | Sglang | SGLang serving backend |
+| `sglang_diffusion` | SGLangDiffusion | SGLang image/video diffusion backend (including Wan) |
 | `huggingface` | Huggingface | Generic HuggingFace models |
 | `openai` | OpenAICompatible | OpenAI-compatible APIs (aliases: `openai_compatible`, `openai_compatible_chat`) |
 | `async_openai` | AsyncOpenAIChat | Async OpenAI chat (alias: `async_openai_compatible_chat`) |
@@ -659,6 +680,7 @@ python -m lmms_eval --tasks list_with_num
 | `vila` | VILA | Image, Video |
 | `vita` | VITA | Multimodal |
 | `vora` | VoRA | Multimodal |
+| `vqtoken` | VQToken | Learned VQ-Attention on LLaVA-OneVision (Image, Video) |
 | `whisper` | Whisper | Audio |
 | `whisper_vllm` | WhisperVllm | Audio |
 | `xcomposer2_4KHD` | XComposer2_4KHD | High-resolution Image |

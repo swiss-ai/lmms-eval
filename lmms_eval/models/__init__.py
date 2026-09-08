@@ -11,7 +11,7 @@ from loguru import logger
 from lmms_eval.models.registry_v2 import ModelManifest, ModelRegistryV2
 
 logger.remove()
-log_format = "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | " "<level>{level: <8}</level> | " "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - " "<level>{message}</level>"
+log_format = "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
 logger.add(sys.stdout, level="WARNING", format=log_format)
 
 
@@ -50,6 +50,7 @@ AVAILABLE_SIMPLE_MODELS = {
     "gemini": "Gemini",
     "gpt4o_audio": "GPT4OAudio",
     "gemma3": "Gemma3",
+    "gemma4": "Gemma4",
     "gpt4v": "GPT4V",
     "idefics2": "Idefics2",
     "illume_plus": "ILLUMEPlus",
@@ -78,6 +79,7 @@ AVAILABLE_SIMPLE_MODELS = {
     "minicpm_v": "MiniCPM_V",
     "minimonkey": "MiniMonkey",
     "mmada": "MMaDA",
+    "mistral3_vl": "Mistral3_VL",
     "moviechat": "MovieChat",
     "mplug_owl_video": "mplug_Owl",
     "ola": "Ola",
@@ -117,6 +119,7 @@ AVAILABLE_SIMPLE_MODELS = {
     "molmo_vllm": "MolmoVLLM",
     "vllm": "VLLM",
     "vora": "VoRA",
+    "vqtoken": "VQToken",
     "whisper_vllm": "WhisperVllm",
     "whisper": "Whisper",
     "whisper_tt": "WhisperTT",
@@ -145,8 +148,11 @@ AVAILABLE_CHAT_TEMPLATE_MODELS = {
     "thyme": "Thyme",
     "openai": "OpenAICompatible",
     "vllm": "VLLM",
+    "vllm_omni_api": "VLLMOmniAPI",
+    "vllm_omni": "VLLMOmni",
     "vllm_generate": "VLLMGenerate",
     "sglang": "Sglang",
+    "sglang_diffusion": "SGLangDiffusion",
     "huggingface": "Huggingface",
     "litellm": "LiteLLMCompatible",
     "async_openai": "AsyncOpenAIChat",
@@ -172,6 +178,9 @@ MODEL_ALIASES: dict[str, tuple[str, ...]] = {
     "async_openai": ("async_openai_compatible_chat", "async_openai_compatible"),
     "async_hf_model": ("async_hf",),
     "litellm": ("litellm_chat", "litellm_compatible"),
+    "vllm_omni_api": ("vllm-omni-api", "vllm_omni_client"),
+    "vllm_omni": ("vllm-omni",),
+    "sglang_diffusion": ("sglang-diffusion", "sglang_wan", "sglang-wan"),
 }
 
 
@@ -211,7 +220,7 @@ def _merge_legacy_plugin_models(registry: ModelRegistryV2) -> None:
         return
 
     warnings.warn(
-        "LMMS_EVAL_PLUGINS is deprecated. Prefer Python entry-points group " "'lmms_eval.models' for plugin model registration.",
+        "LMMS_EVAL_PLUGINS is deprecated. Prefer Python entry-points group 'lmms_eval.models' for plugin model registration.",
         DeprecationWarning,
         stacklevel=2,
     )

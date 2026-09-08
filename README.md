@@ -1,5 +1,5 @@
-<p align="center" width="70%">
-<img src="https://i.postimg.cc/KvkLzbF9/WX20241212-014400-2x.png">
+<p align="center">
+  <img src="https://raw.githubusercontent.com/EvolvingLMMs-Lab/lmms-eval/main/docs/images/lmms-eval-hero.avif" alt="LMMs-Eval" width="70%">
 </p>
 
 # LMMs-Eval: Probing Intelligence in the Real World
@@ -186,6 +186,11 @@ bash examples/models/sglang.sh
 **Qwen3.5:**
 ```bash
 bash examples/models/sglang_qwen35.sh
+```
+
+**Wan2.2-I2V on VBVR:**
+```bash
+bash examples/models/sglang_wan22_vbvr.sh
 ```
 
 ### Evaluation of OpenAI-Compatible Model
@@ -400,7 +405,7 @@ LMMS-Eval includes an optional Web UI for interactive evaluation configuration.
 uv run lmms-eval-ui
 
 # Custom port
-LMMS_SERVER_PORT=3000 uv run lmms-eval-ui
+LMMS_SERVER_PORT=3000 LMMS_EVAL_TUI_ALLOWED_ORIGINS=http://localhost:3000 uv run lmms-eval-ui
 ```
 
 The web UI provides:
