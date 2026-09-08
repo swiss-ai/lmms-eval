@@ -35,6 +35,8 @@ jobs:
         run: uv pip sync .github/hermetic-cpu-requirements.txt
       - name: Collect all tests
         run: uv run --no-sync python -m pytest --collect-only -q
+      - name: Run vLLM prompt-routing contract
+        run: uv run --no-sync python -m pytest -q test/models/test_simple_vllm_task_context.py
       - name: Run hermetic CPU contracts
         run: >-
           uv run --no-sync python -m pytest -q -m "not gpu and not api"

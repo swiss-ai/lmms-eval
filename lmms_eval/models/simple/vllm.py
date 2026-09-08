@@ -555,18 +555,18 @@ class VLLM(lmms):
                     else:
                         visuals = self.flatten(visuals)
                         imgs = []  # multiple images or frames for video
-                        all_tasks = []
+                        encode_futures = []
                         with ThreadPoolExecutor(max_workers=WORKERS) as executor:
                             for visual in visuals:
                                 if isinstance(visual, str) and (".mp4" in visual or ".avi" in visual or ".mov" in visual or ".flv" in visual or ".wmv" in visual):
-                                    all_tasks.append(executor.submit(self.encode_video, visual))
+                                    encode_futures.append(executor.submit(self.encode_video, visual))
                                 elif isinstance(visual, str) and (".jpg" in visual or ".jpeg" in visual or ".png" in visual or ".gif" in visual or ".bmp" in visual or ".tiff" in visual or ".webp" in visual):
-                                    all_tasks.append(executor.submit(self.encode_image, visual))
+                                    encode_futures.append(executor.submit(self.encode_image, visual))
                                 elif isinstance(visual, Image.Image):
-                                    all_tasks.append(executor.submit(self.encode_image, visual))
+                                    encode_futures.append(executor.submit(self.encode_image, visual))
 
-                            for task in all_tasks:
-                                imgs.append(task.result())
+                            for future in encode_futures:
+                                imgs.append(future.result())
 
                     messages = [{"role": "user", "content": []}]
                     if self.image_first:
