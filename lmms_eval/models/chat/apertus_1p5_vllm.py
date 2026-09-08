@@ -140,10 +140,7 @@ class Apertus1p5VLLM(VLLM):
         out = self.client.generate(prompts=[{"prompt_token_ids": token_ids}], sampling_params=[SamplingParams(**params)])
         text, n_tokens = out[0].outputs[0].text, len(out[0].outputs[0].token_ids)
         if _INNER_PREFIX not in text:
-            raise RuntimeError(
-                f"thinking canary failed: enable_thinking={self.enable_thinking} but no {_INNER_PREFIX} "
-                f"in {n_tokens} output tokens: {text[:200]!r}"
-            )
+            raise RuntimeError(f"thinking canary failed: enable_thinking={self.enable_thinking} but no {_INNER_PREFIX} " f"in {n_tokens} output tokens: {text[:200]!r}")
         eval_logger.info(f"apertus_1p5_vllm: thinking canary passed ({n_tokens} tokens)")
 
     def generate_until(self, requests):
