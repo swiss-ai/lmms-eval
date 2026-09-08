@@ -2,5 +2,5 @@ group: medevalkit
 task:
   - vqa_rad
   - path_vqa
-  - slake
+  - slake_medevalkit
   - pmc_vqa

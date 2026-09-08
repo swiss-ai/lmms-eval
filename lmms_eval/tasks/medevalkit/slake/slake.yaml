@@ -1,5 +1,5 @@
 dataset_path: BoKelvin/SLAKE
-task: slake
+task: slake_medevalkit
 test_split: test
 output_type: generate_until
 
