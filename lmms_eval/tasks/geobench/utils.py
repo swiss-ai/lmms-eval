@@ -33,7 +33,7 @@ def geobench_single_filter_docs(dataset):
             return True
         return os.path.exists(os.path.join(_base_dir(), doc["image_path"]))
 
-    kept = dataset.filter(_has_image)
+    kept = dataset.filter(_has_image, load_from_cache_file=False)
     dropped = len(dataset) - len(kept)
     if dropped:
         eval_logger.warning(f"geobench_single: dropped {dropped}/{len(dataset)} docs whose images are unavailable (xBD imagery is not redistributed with GEOBench-VLM; stage it under GEOBENCH_DIR/Single/images to restore them)")
@@ -105,7 +105,7 @@ def geobench_temporal_filter_docs(dataset):
     def _has_images(doc):
         return all(os.path.exists(os.path.join(base, p)) for p in doc["image_path"])
 
-    kept = dataset.filter(_has_images)
+    kept = dataset.filter(_has_images, load_from_cache_file=False)
     dropped = len(dataset) - len(kept)
     if dropped:
         eval_logger.warning(f"geobench_temporal: dropped {dropped}/{len(dataset)} docs whose images are unavailable (xBD imagery is not redistributed with GEOBench-VLM; stage it under GEOBENCH_DIR/Temporal/images to restore them)")

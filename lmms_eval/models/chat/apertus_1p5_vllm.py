@@ -31,9 +31,13 @@ class Apertus1p5VLLM(VLLM):
     """
 
     def __init__(self, *args, **kwargs):
-        self.enable_thinking = kwargs.pop("enable_thinking", False)
+        enable_thinking = kwargs.pop("enable_thinking", False)
         tokenizer_path = kwargs.get("tokenizer") or os.environ.get("APERTUS_TOKENIZER_PATH") or DEFAULT_TOKENIZER_PATH
         super().__init__(*args, **kwargs)
+        # The upstream vLLM base owns an enable_thinking attribute and resets it
+        # to None in its constructor, so the flag must be assigned after it runs.
+        self.enable_thinking = bool(enable_thinking)
+        self._canary_done = False
         from transformers import AutoTokenizer
 
         self._ap_tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=False)
@@ -110,7 +114,39 @@ class Apertus1p5VLLM(VLLM):
         )
         return [(o.outputs[0].text, len(o.outputs[0].token_ids)) for o in response]
 
+    _CANARY_PROMPT = "What is 17 multiplied by 23? Think it through before answering."
+
+    def _run_thinking_canary(self):
+        """Prove the engine deliberates before any scored request is generated.
+
+        A run that requests thinking but loses the flag still completes with
+        normal-looking scores, so the first generate call spends one short
+        text-only request on it and fails loudly if no deliberation block appears.
+        """
+        if os.environ.get("APERTUS_SKIP_THINKING_CANARY", "").lower() in ("1", "true", "yes"):
+            eval_logger.warning("apertus_1p5_vllm: thinking canary skipped by APERTUS_SKIP_THINKING_CANARY")
+            return
+        from vllm import SamplingParams
+
+        prompt = self._ap_tokenizer.apply_chat_template(
+            [{"role": "user", "content": {"parts": [{"type": "text", "text": self._CANARY_PROMPT}]}}],
+            add_generation_prompt=True,
+            tokenize=False,
+            chat_template=self._ap_chat_template,
+            enable_thinking=True,
+        )
+        token_ids = self._ap_tokenizer(prompt, add_special_tokens=False, return_attention_mask=False)["input_ids"]
+        params = self._build_sampling_params_dict({"max_new_tokens": 512, "temperature": 0.6, "top_p": 0.95})
+        out = self.client.generate(prompts=[{"prompt_token_ids": token_ids}], sampling_params=[SamplingParams(**params)])
+        text, n_tokens = out[0].outputs[0].text, len(out[0].outputs[0].token_ids)
+        if _INNER_PREFIX not in text:
+            raise RuntimeError(f"thinking canary failed: enable_thinking={self.enable_thinking} but no {_INNER_PREFIX} " f"in {n_tokens} output tokens: {text[:200]!r}")
+        eval_logger.info(f"apertus_1p5_vllm: thinking canary passed ({n_tokens} tokens)")
+
     def generate_until(self, requests):
+        if self.enable_thinking and not self._canary_done:
+            self._run_thinking_canary()
+            self._canary_done = True
         results = []
         pbar = tqdm(total=len(requests), disable=(self.rank != 0), desc="Apertus vLLM generate")
         batch_size = self.batch_size_per_gpu
