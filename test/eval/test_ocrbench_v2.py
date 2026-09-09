@@ -1,4 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
@@ -79,3 +81,63 @@ def test_cn_vqa_evaluation_supports_scalar_answers():
 
 def test_counting_evaluation_supports_scalar_answers():
     assert vqa_metric.counting_evaluation("There are 3 objects.", "3", "exact match") == 1
+
+
+@pytest.mark.parametrize(
+    ("prediction", "reference", "options", "expected"),
+    [
+        ("<td>a</td>", "<td>a</td>", {}, 1.0),
+        ("<td>a</td>", "<td>b</td>", {}, 0.5),
+        # One changed token among 3 (or 5), normalized by 3 HTML nodes.
+        ("<td><b>a</b></td>", "<td><b>b</b></td>", {}, 8 / 9),
+        ("<td><b>a</b> x</td>", "<td><b>a</b> y</td>", {}, 14 / 15),
+        ("<td>a</td>", '<td colspan="2">a</td>', {}, 0.5),
+        ("<td>a</td>", "<td>b</td>", {"structure_only": True}, 1.0),
+        ("<td><b>a</b> tail</td>", "<td>a tail</td>", {"ignore_nodes": ["b"]}, 1.0),
+    ],
+)
+def test_teds_preserves_serial_scores(prediction, reference, options, expected):
+    scorer = utils.TEDS(**options)
+    pred = f"<html><body><table><tr>{prediction}</tr></table></body></html>"
+    truth = f"<html><body><table><tr>{reference}</tr></table></body></html>"
+    assert scorer.evaluate(pred, truth) == pytest.approx(expected)
+
+
+def test_ocrbench_v2_shared_teds_scores_concurrent_documents(monkeypatch):
+    """A second document must not overwrite an unfinished cell's tokens."""
+    first_cell_tokenized = Event()
+    second_document_scored = Event()
+    scorer = utils.TEDS(n_jobs=32)
+    monkeypatch.setattr(utils, "teds", scorer)
+    tokenize = scorer.tokenize
+
+    def interleaved_tokenize(node):
+        tokens = tokenize(node)
+        if node.tag == "td" and node.text == "a" and not first_cell_tokenized.is_set():
+            # Pause the first document after tokenization but before its cell
+            # tree is built. The second document then completes on this same
+            # scorer, deterministically exercising the shared-state race.
+            first_cell_tokenized.set()
+            assert second_document_scored.wait(timeout=10)
+        return tokens
+
+    monkeypatch.setattr(scorer, "tokenize", interleaved_tokenize)
+
+    def score(text):
+        table = f"<html><body><table><tr><td>{text}</td></tr></table></body></html>"
+        doc = {"question": "Return the HTML table.", "answers": [table], "type": "table parsing en"}
+        return utils.ocrbench_v2_process_results(doc, [table])["ocrbench_v2_accuracy"]["score"]
+
+    def score_second_document():
+        assert first_cell_tokenized.wait(timeout=10)
+        try:
+            return score("b")
+        finally:
+            second_document_scored.set()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(score, "a")
+        second = executor.submit(score_second_document)
+        scores = [first.result(timeout=15), second.result(timeout=15)]
+
+    assert scores == [1.0, 1.0]

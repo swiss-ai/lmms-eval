@@ -75,30 +75,27 @@ class TEDS(object):
         self.structure_only = structure_only
         self.n_jobs = n_jobs
         self.ignore_nodes = ignore_nodes
-        self.__tokens__ = []
 
     def tokenize(self, node):
-        """Tokenizes table cells"""
-        self.__tokens__.append("<%s>" % node.tag)
+        """Tokenize a table cell without sharing state between evaluations."""
+        tokens = ["<%s>" % node.tag]
         if node.text is not None:
-            self.__tokens__ += list(node.text)
+            tokens.extend(node.text)
         for n in node.getchildren():
-            self.tokenize(n)
+            tokens.extend(self.tokenize(n))
         if node.tag != "unk":
-            self.__tokens__.append("</%s>" % node.tag)
+            tokens.append("</%s>" % node.tag)
         if node.tag != "td" and node.tail is not None:
-            self.__tokens__ += list(node.tail)
+            tokens.extend(node.tail)
+        return tokens
 
     def load_html_tree(self, node, parent=None):
         """Converts HTML tree to the format required by apted"""
-        global __tokens__
         if node.tag == "td":
             if self.structure_only:
                 cell = []
             else:
-                self.__tokens__ = []
-                self.tokenize(node)
-                cell = self.__tokens__[1:-1].copy()
+                cell = self.tokenize(node)[1:-1]
             new_node = TableTree(node.tag, int(node.attrib.get("colspan", "1")), int(node.attrib.get("rowspan", "1")), cell, *deque())
         else:
             new_node = TableTree(node.tag, None, None, None, *deque())
