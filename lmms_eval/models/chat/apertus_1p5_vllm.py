@@ -31,9 +31,11 @@ class Apertus1p5VLLM(VLLM):
     """
 
     def __init__(self, *args, **kwargs):
-        self.enable_thinking = kwargs.pop("enable_thinking", False)
+        enable_thinking = kwargs.pop("enable_thinking", False)
         tokenizer_path = kwargs.get("tokenizer") or os.environ.get("APERTUS_TOKENIZER_PATH") or DEFAULT_TOKENIZER_PATH
         super().__init__(*args, **kwargs)
+        # The base constructor resets this attribute; restore the requested mode.
+        self.enable_thinking = bool(enable_thinking)
         from transformers import AutoTokenizer
 
         self._ap_tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=False)
