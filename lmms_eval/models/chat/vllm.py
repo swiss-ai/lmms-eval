@@ -56,14 +56,16 @@ class VLLM(VLLMSimple):
         self.max_pixels = max_pixels
         self.nframes = nframes
 
-    def make_one_request(self, request: Instance) -> Tuple[list[dict], dict]:
+    def make_one_request(self, request: Instance, *, chat_messages: Optional[ChatMessages] = None) -> Tuple[list[dict], dict]:
         """
         Build OpenAI-style messages and per-request sampling params from an Instance.
         Returns (messages, params_dict). Does not mutate input.
+        A caller that has already loaded/validated messages can reuse them.
         """
         ctx, doc_to_messages, gen_kwargs, doc_id, task, split = request.arguments
-        raw_messages = doc_to_messages(self.task_dict[task][split][doc_id])
-        chat_messages = ChatMessages(messages=raw_messages)
+        if chat_messages is None:
+            raw_messages = doc_to_messages(self.task_dict[task][split][doc_id])
+            chat_messages = ChatMessages(messages=raw_messages)
         # Copy to avoid side-effects across threads
         _gen = dict(gen_kwargs or {})
         _gen["max_new_tokens"] = self._select_max_new_tokens(_gen.get("max_new_tokens"))
