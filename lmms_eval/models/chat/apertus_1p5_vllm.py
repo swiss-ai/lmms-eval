@@ -1,6 +1,7 @@
 import os
 import re
 from dataclasses import replace
+from itertools import groupby
 
 from apertus_image_tokenizer import splice_frames
 from PIL import Image as PILImage
@@ -26,13 +27,16 @@ class Apertus1p5VLLM(VLLM):
     The engine is a text-only ApertusForCausalLM: images are spliced into the
     prompt as framed visual-token text (Emu3.5 VQ, via the suite's shared
     apertus_image_tokenizer) before tokenization, so the engine only ever
-    sees token ids. The chat renderer (which needs an HF multimodal processor
-    the checkpoint does not ship) is bypassed entirely.
+    sees token ids for text/image requests. Audio requests retain the inherited
+    chat renderer and its existing multimodal processor path.
     """
+
+    _chat_add_special_tokens = False
 
     def __init__(self, *args, **kwargs):
         enable_thinking = kwargs.pop("enable_thinking", False)
         tokenizer_path = kwargs.get("tokenizer") or os.environ.get("APERTUS_TOKENIZER_PATH") or DEFAULT_TOKENIZER_PATH
+        kwargs.setdefault("skip_mm_profiling", True)
         super().__init__(*args, **kwargs)
         # The upstream vLLM base owns an enable_thinking attribute and resets it
         # to None in its constructor, so the flag must be assigned after it runs.
@@ -63,8 +67,13 @@ class Apertus1p5VLLM(VLLM):
     def _render_request(self, request):
         ctx, doc_to_messages, gen_kwargs, doc_id, task, split = request.arguments
         raw_messages = doc_to_messages(self.task_dict[task][split][doc_id])
+        chat_messages = ChatMessages(messages=raw_messages)
+        if any(content.type == "audio" for message in chat_messages.messages for content in message.content):
+            # Reuse the historical audio chat conversion without loading or
+            # validating the document again. Text/images keep token splicing.
+            return super().make_one_request(request, chat_messages=chat_messages)
         template_messages, images = [], []
-        for message in ChatMessages(messages=raw_messages).messages:
+        for message in chat_messages.messages:
             # The chat template accepts {"parts"} only for user turns; system
             # and assistant turns take plain strings (and carry no images).
             if message.role != "user":
@@ -108,11 +117,24 @@ class Apertus1p5VLLM(VLLM):
     def _run_generate(self, items):
         from vllm import SamplingParams
 
-        response = self.client.generate(
-            prompts=[prompt_data for prompt_data, _ in items],
-            sampling_params=[SamplingParams(**params) for _, params in items],
-        )
-        return [(o.outputs[0].text, len(o.outputs[0].token_ids)) for o in response]
+        results = []
+        # Dispatch after TP synchronization; contiguous groups preserve request
+        # order and every rank takes the same engine calls for a mixed batch.
+        for chat, group in groupby(items, key=lambda item: isinstance(item[0], list)):
+            group = list(group)
+            params = [SamplingParams(**params) for _, params in group]
+            if chat:
+                response = self.client.chat(
+                    messages=[messages for messages, _ in group],
+                    sampling_params=params,
+                    chat_template=self.chat_template,
+                    **self._chat_template_kwargs(),
+                    **self._chat_tokenization_kwargs(),
+                )
+            else:
+                response = self.client.generate(prompts=[prompt for prompt, _ in group], sampling_params=params)
+            results.extend((o.outputs[0].text, len(o.outputs[0].token_ids)) for o in response)
+        return results
 
     _CANARY_PROMPT = "What is 17 multiplied by 23? Think it through before answering."
 
