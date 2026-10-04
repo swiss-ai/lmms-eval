@@ -383,7 +383,11 @@ class VLLM(lmms):
         except (TypeError, ValueError):
             eval_logger.warning("Invalid max_new_tokens from task (%s), falling back to model setting (%s)." % (request_max_new_tokens, self.max_new_tokens))
             return self.max_new_tokens
-        return max(request_max_new_tokens, self.max_new_tokens)
+        # A task's declared cap is authoritative; the model setting is only the
+        # fallback for tasks that declare none. Taking the max let a 4096 default
+        # override every smaller task cap, so one looping sample could add
+        # thousands of insertions to a WER.
+        return request_max_new_tokens
 
     @staticmethod
     def _normalize_top_p_for_vllm(top_p: Any) -> Any:
