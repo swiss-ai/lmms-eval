@@ -1,3 +1,4 @@
+import numpy as np
 from typing import List, Optional, Tuple, Union
 
 import torch
@@ -216,7 +217,10 @@ class Qwen2_Audio(lmms):
 
             if isinstance(contexts, tuple):
                 contexts = list(contexts)
-            audios = [audio for audio in flattened_audios]
+            # Whisper's feature extractor needs mono 1-D audio; some datasets
+            # (VoiceBench, MMSU) decode to (channels, samples).
+            audios = [np.asarray(a, dtype=np.float32) for a in flattened_audios]
+            audios = [a.mean(axis=0 if a.shape[0] < a.shape[1] else 1) if a.ndim == 2 else a for a in audios]
 
             if not self.simple_prompt:
                 conversations = []
