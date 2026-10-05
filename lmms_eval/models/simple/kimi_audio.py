@@ -142,11 +142,9 @@ class KimiAudio(lmms):
 
         for chunk in chunks:
             contexts, all_gen_kwargs, doc_to_visual, doc_id, task, split = zip(*chunk)
-            task = task[0]
-            split = split[0]
-
-            # Get audio data from task
-            batched_audios = [doc_to_visual[0](self.task_dict[task][split][ids]) for ids in doc_id]
+            # A batch can span the subtasks of a group; look each request up in
+            # its own task's dataset.
+            batched_audios = [to_visual(self.task_dict[t][s][i]) for to_visual, i, t, s in zip(doc_to_visual, doc_id, task, split)]
 
             gen_kwargs = all_gen_kwargs[0]
 
