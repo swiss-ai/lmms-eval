@@ -183,9 +183,10 @@ class Qwen2_Audio(lmms):
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
         for chunk in chunks:
             contexts, all_gen_kwargs, doc_to_visual, doc_id, task, split = zip(*chunk)
-            task = task[0]
-            split = split[0]
-            batched_audios = [doc_to_visual[0](self.task_dict[task][split][ids]) for ids in doc_id]
+            # A batch is grouped by gen_kwargs only, so it can span the subtasks
+            # of a group (e.g. VoiceBench MMSU subjects); look each request up
+            # in its own task's dataset.
+            batched_audios = [to_visual(self.task_dict[t][s][i]) for to_visual, i, t, s in zip(doc_to_visual, doc_id, task, split)]
             sampling_rate = self.processor.feature_extractor.sampling_rate
             chunk_lim = self.processor.feature_extractor.n_samples
             new_batched_audios = []
