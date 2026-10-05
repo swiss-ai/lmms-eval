@@ -1,0 +1,3 @@
+dataset_name: fr_fr
+include: _default_template_yaml
+task: fleurs_fr_fr

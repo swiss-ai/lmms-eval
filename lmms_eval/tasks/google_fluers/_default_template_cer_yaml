@@ -1,0 +1,5 @@
+include: _default_template_yaml
+metric_list:
+  - metric: cer
+    aggregation: !function utils.fleurs_cer
+    higher_is_better: false
