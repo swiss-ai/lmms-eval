@@ -74,25 +74,24 @@ class ChatMixin:
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
         pbar = tqdm(total=len(requests), disable=(self.rank != 0), desc="Model Responding")
 
+        # _infer_one handles one request; answer every request in each chunk so
+        # the result count matches the requests at any --batch_size.
         for chunk in chunks:
-            ctx, doc_to_messages, all_gen_kwargs, doc_id, task, split = zip(*chunk)
-            task_name = task[0]
-            split_name = split[0]
-            gen_kwargs = dict(all_gen_kwargs[0])
+            for ctx, doc_to_messages, request_gen_kwargs, doc_id, task_name, split_name in chunk:
+                gen_kwargs = dict(request_gen_kwargs)
+                doc = self.task_dict[task_name][split_name][doc_id]
+                raw_messages = doc_to_messages(doc)
+                chat_messages = ChatMessages(**{"messages": raw_messages})
 
-            doc = self.task_dict[task_name][split_name][doc_id[0]]
-            raw_messages = doc_to_messages[0](doc)
-            chat_messages = ChatMessages(**{"messages": raw_messages})
+                try:
+                    answer = self._infer_one(chat_messages, gen_kwargs)
+                except Exception as e:
+                    eval_logger.error(f"Error in generating: {e}\n{traceback.format_exc()}")
+                    answer = ""
 
-            try:
-                answer = self._infer_one(chat_messages, gen_kwargs)
-            except Exception as e:
-                eval_logger.error(f"Error in generating: {e}\n{traceback.format_exc()}")
-                answer = ""
-
-            res.append(answer)
-            self.cache_hook.add_partial("generate_until", (ctx[0], gen_kwargs), answer)
-            pbar.update(1)
+                res.append(answer)
+                self.cache_hook.add_partial("generate_until", (ctx, gen_kwargs), answer)
+                pbar.update(1)
 
         res = re_ords.get_original(res)
         pbar.close()

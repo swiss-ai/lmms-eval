@@ -5,6 +5,8 @@ This file only implements the Qwen-Omni-specific
 chat_messages -> output step.
 """
 
+import librosa
+import numpy as np
 from loguru import logger as eval_logger
 
 from lmms_eval.api.registry import register_model
@@ -16,6 +18,35 @@ try:
     from qwen_omni_utils import process_mm_info
 except ImportError:
     eval_logger.warning("Failed to import qwen_omni_utils; install via `pip install qwen-omni-utils[decord]`")
+
+
+_OMNI_SAMPLE_RATE = 16000
+_OMNI_CHUNK = 300 * _OMNI_SAMPLE_RATE  # 5-minute pieces, as in the simple backend
+
+
+def _audio_to_mono_chunks(audio):
+    """Decode a dataset audio object to mono 16 kHz arrays for process_mm_info.
+
+    process_mm_info only accepts 1-D arrays or path/URL strings; datasets
+    yields AudioDecoder objects or {"array", "sampling_rate"} dicts.
+    """
+    if isinstance(audio, str):
+        return [audio]
+    if hasattr(audio, "get_all_samples"):
+        decoded = audio.get_all_samples()
+        array, rate = decoded.data, decoded.sample_rate
+    elif isinstance(audio, dict) and "array" in audio:
+        array, rate = audio["array"], audio["sampling_rate"]
+    else:
+        array, rate = audio, _OMNI_SAMPLE_RATE
+    if hasattr(array, "cpu"):
+        array = array.cpu().numpy()
+    array = np.asarray(array, dtype=np.float32)
+    if array.ndim == 2:
+        array = array.mean(axis=0 if array.shape[0] < array.shape[1] else 1)
+    if rate != _OMNI_SAMPLE_RATE:
+        array = librosa.resample(array, orig_sr=rate, target_sr=_OMNI_SAMPLE_RATE).astype(np.float32)
+    return [array[i : i + _OMNI_CHUNK] for i in range(0, max(len(array), 1), _OMNI_CHUNK)]
 
 
 @register_model("qwen2_5_omni_chat")
@@ -35,6 +66,16 @@ class Qwen2_5_Omni(ChatMixin, Qwen2_5_OmniSimple):
 
         # Audio/video are separate content blocks (silent MELD clips).
         use_audio_in_video = False
+
+        for message in hf_messages:
+            if isinstance(message.get("content"), list):
+                content = []
+                for part in message["content"]:
+                    if part.get("type") == "audio":
+                        content += [{"type": "audio", "audio": chunk} for chunk in _audio_to_mono_chunks(part["audio"])]
+                    else:
+                        content.append(part)
+                message["content"] = content
 
         text = self.processor.apply_chat_template(hf_messages, add_generation_prompt=True, tokenize=False)
         audios, images, videos = process_mm_info(hf_messages, use_audio_in_video=use_audio_in_video)
