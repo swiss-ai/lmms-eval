@@ -4,15 +4,15 @@ Execute the real three constructor bodies and Apertus rendering methods;
 replace only engine, accelerator, tokenizer and protocol adapters. AST loading
 avoids importing optional GPU packages before those boundaries can be replaced.
 """
+
 import ast
 import json
 import os
+import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
-import unittest
 from unittest.mock import patch
-
 
 MODELS = Path(__file__).resolve().parents[2] / "lmms_eval" / "models"
 
@@ -44,18 +44,18 @@ class _Tokenizer:
 
 def _load_class(scope, relative, source_name, name, base, methods):
     path = MODELS / relative
-    cls = next(node for node in ast.parse(path.read_text()).body
-               if isinstance(node, ast.ClassDef) and node.name == source_name)
-    selected = ast.ClassDef(name=name, bases=[ast.Name(id=base, ctx=ast.Load())], keywords=[],
-                            body=[node for node in cls.body if isinstance(node, ast.FunctionDef)
-                                  and node.name in methods], decorator_list=[])
+    cls = next(node for node in ast.parse(path.read_text()).body if isinstance(node, ast.ClassDef) and node.name == source_name)
+    selected = ast.ClassDef(name=name, bases=[ast.Name(id=base, ctx=ast.Load())], keywords=[], body=[node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name in methods], decorator_list=[])
     module = ast.fix_missing_locations(ast.Module(body=[selected], type_ignores=[]))
     exec(compile(module, str(path), "exec"), scope)
 
 
 def _model_class():
     scope = {
-        "Any": Any, "Optional": Optional, "os": os, "json": json,
+        "Any": Any,
+        "Optional": Optional,
+        "os": os,
+        "json": json,
         "_NoEngineBase": _NoEngineBase,
         "Accelerator": lambda: SimpleNamespace(num_processes=1, process_index=0, device="cpu"),
         "LLM": lambda **kwargs: SimpleNamespace(),
@@ -63,12 +63,9 @@ def _model_class():
         "DEFAULT_TOKENIZER_PATH": "fixture/tokenizer",
         "ChatMessages": lambda messages: SimpleNamespace(messages=messages),
     }
-    _load_class(scope, "simple/vllm.py", "VLLM", "VLLMSimple", "_NoEngineBase",
-                {"__init__", "_is_qwen_vl_model", "_select_max_new_tokens",
-                 "_normalize_top_p_for_vllm", "_build_sampling_params_dict"})
+    _load_class(scope, "simple/vllm.py", "VLLM", "VLLMSimple", "_NoEngineBase", {"__init__", "_is_qwen_vl_model", "_select_max_new_tokens", "_normalize_top_p_for_vllm", "_build_sampling_params_dict"})
     _load_class(scope, "chat/vllm.py", "VLLM", "VLLM", "VLLMSimple", {"__init__"})
-    _load_class(scope, "chat/apertus_1p5_vllm.py", "Apertus1p5VLLM", "Apertus1p5VLLM", "VLLM",
-                {"__init__", "_render_request", "_build_sampling_params_dict"})
+    _load_class(scope, "chat/apertus_1p5_vllm.py", "Apertus1p5VLLM", "Apertus1p5VLLM", "VLLM", {"__init__", "_render_request", "_build_sampling_params_dict"})
     return scope["Apertus1p5VLLM"]
 
 
