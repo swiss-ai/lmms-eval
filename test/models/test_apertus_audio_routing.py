@@ -3,18 +3,19 @@
 AST-load production methods to avoid optional GPU imports. Only the engine,
 tokenizer, image encoder, accelerator and protocol validation are substituted.
 """
+
 import ast
 import base64
 import io
-from dataclasses import dataclass, replace
-from itertools import groupby
 import json
 import os
-from pathlib import Path
 import re
+import unittest
+from dataclasses import dataclass, replace
+from itertools import groupby
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
-import unittest
 from unittest.mock import patch
 
 import test_apertus_thinking_constructor as constructor
@@ -24,15 +25,10 @@ MODELS = Path(__file__).resolve().parents[2] / "lmms_eval" / "models"
 
 def load_class(scope, relative, source_name, name, base, methods):
     path = MODELS / relative
-    cls = next(node for node in ast.parse(path.read_text()).body
-               if isinstance(node, ast.ClassDef) and node.name == source_name)
-    body = [node for node in cls.body if
-            (isinstance(node, ast.FunctionDef) and node.name in methods)
-            or isinstance(node, (ast.Assign, ast.AnnAssign))]
-    selected = ast.ClassDef(name=name, bases=[ast.Name(id=base, ctx=ast.Load())],
-                            keywords=[], body=body, decorator_list=[])
-    module = ast.fix_missing_locations(ast.Module(body=[
-        ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0), selected], type_ignores=[]))
+    cls = next(node for node in ast.parse(path.read_text()).body if isinstance(node, ast.ClassDef) and node.name == source_name)
+    body = [node for node in cls.body if (isinstance(node, ast.FunctionDef) and node.name in methods) or isinstance(node, (ast.Assign, ast.AnnAssign))]
+    selected = ast.ClassDef(name=name, bases=[ast.Name(id=base, ctx=ast.Load())], keywords=[], body=body, decorator_list=[])
+    module = ast.fix_missing_locations(ast.Module(body=[ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0), selected], type_ignores=[]))
     exec(compile(module, str(path), "exec"), scope)
 
 
@@ -52,8 +48,7 @@ class ProtocolValidation:
 
     def __init__(self, messages):
         type(self).calls += 1
-        self.messages = [SimpleNamespace(role=m["role"], content=[SimpleNamespace(**c) for c in m["content"]])
-                         for m in messages]
+        self.messages = [SimpleNamespace(role=m["role"], content=[SimpleNamespace(**c) for c in m["content"]]) for m in messages]
 
 
 class Image:
@@ -112,35 +107,55 @@ class Engine:
 
     @staticmethod
     def responses(ids):
-        return [SimpleNamespace(outputs=[SimpleNamespace(text=f"<|inner_prefix|>reason<|inner_suffix|>{name}", token_ids=[1, 2])])
-                for name in ids]
+        return [SimpleNamespace(outputs=[SimpleNamespace(text=f"<|inner_prefix|>reason<|inner_suffix|>{name}", token_ids=[1, 2])]) for name in ids]
 
 
 def model_class():
     scope = {
-        "Any": Any, "Optional": Optional, "os": os, "json": json, "re": re,
-        "replace": replace, "groupby": groupby, "base64": base64, "io": io,
+        "Any": Any,
+        "Optional": Optional,
+        "os": os,
+        "json": json,
+        "re": re,
+        "replace": replace,
+        "groupby": groupby,
+        "base64": base64,
+        "io": io,
         "np": SimpleNamespace(asarray=lambda audio, dtype: audio, float32="float32"),
         "sf": SimpleNamespace(write=write_audio),
-        "_NoEngineBase": constructor._NoEngineBase, "ProtocolValidation": ProtocolValidation,
+        "_NoEngineBase": constructor._NoEngineBase,
+        "ProtocolValidation": ProtocolValidation,
         "Accelerator": lambda: SimpleNamespace(num_processes=1, process_index=0, device="cpu"),
-        "LLM": Engine, "eval_logger": SimpleNamespace(info=lambda *a: None),
-        "DEFAULT_TOKENIZER_PATH": "fixture/tokenizer", "PILImage": SimpleNamespace(Image=Image),
+        "LLM": Engine,
+        "eval_logger": SimpleNamespace(info=lambda *a: None),
+        "DEFAULT_TOKENIZER_PATH": "fixture/tokenizer",
+        "PILImage": SimpleNamespace(Image=Image),
         "splice_frames": lambda prompt, images, tokenizer: prompt + "+image",
         "tqdm": lambda **k: SimpleNamespace(update=lambda *a: None, close=lambda: None),
-        "GenerationResult": GenerationResult, "TokenCounts": TokenCounts,
-        "_INNER_PREFIX": "<|inner_prefix|>", "_INNER_SUFFIX": "<|inner_suffix|>",
+        "GenerationResult": GenerationResult,
+        "TokenCounts": TokenCounts,
+        "_INNER_PREFIX": "<|inner_prefix|>",
+        "_INNER_SUFFIX": "<|inner_suffix|>",
         "_SPECIAL_TOKEN_RE": re.compile(r"<\|[^|]+\|>"),
     }
-    load_class(scope, "../protocol.py", "ChatMessages", "ChatMessages", "ProtocolValidation",
-               {"_encode_settings", "_audio_to_data_url", "_audio_object_to_data_url", "_audio_mime_type_from_path",
-                "_coerce_audio_array", "_audio_array_to_data_url", "to_openai_messages"})
-    load_class(scope, "simple/vllm.py", "VLLM", "VLLMSimple", "_NoEngineBase",
-               {"__init__", "_is_qwen_vl_model", "_select_max_new_tokens", "_normalize_top_p_for_vllm",
-                "_build_sampling_params_dict", "_chat_template_kwargs", "_chat_tokenization_kwargs", "rank"})
+    load_class(
+        scope,
+        "../protocol.py",
+        "ChatMessages",
+        "ChatMessages",
+        "ProtocolValidation",
+        {"_encode_settings", "_audio_to_data_url", "_audio_object_to_data_url", "_audio_mime_type_from_path", "_coerce_audio_array", "_audio_array_to_data_url", "to_openai_messages"},
+    )
+    load_class(
+        scope,
+        "simple/vllm.py",
+        "VLLM",
+        "VLLMSimple",
+        "_NoEngineBase",
+        {"__init__", "_is_qwen_vl_model", "_select_max_new_tokens", "_normalize_top_p_for_vllm", "_build_sampling_params_dict", "_chat_template_kwargs", "_chat_tokenization_kwargs", "rank"},
+    )
     load_class(scope, "chat/vllm.py", "VLLM", "VLLM", "VLLMSimple", {"__init__", "make_one_request"})
-    load_class(scope, "chat/apertus_1p5_vllm.py", "Apertus1p5VLLM", "Apertus1p5VLLM", "VLLM",
-               {"__init__", "_render_request", "_build_sampling_params_dict", "_run_generate", "generate_until", "_strip_thinking"})
+    load_class(scope, "chat/apertus_1p5_vllm.py", "Apertus1p5VLLM", "Apertus1p5VLLM", "VLLM", {"__init__", "_render_request", "_build_sampling_params_dict", "_run_generate", "generate_until", "_strip_thinking"})
     return scope["Apertus1p5VLLM"], scope["ChatMessages"]
 
 
@@ -153,22 +168,24 @@ class TestApertusAudioRouting(unittest.TestCase):
                 transformers = SimpleNamespace(AutoTokenizer=SimpleNamespace(from_pretrained=lambda *a, **k: tokenizer))
                 vllm = SimpleNamespace(SamplingParams=lambda **k: k)
                 with patch.dict("sys.modules", {"transformers": transformers, "vllm": vllm}):
-                    model = cls(model="fixture", tokenizer="fixture/tokenizer", enable_thinking=thinking,
-                                batch_size=8, tensor_parallel_size=4, max_num_seqs=8, max_new_tokens=1)
+                    model = cls(model="fixture", tokenizer="fixture/tokenizer", enable_thinking=thinking, batch_size=8, tensor_parallel_size=4, max_num_seqs=8, max_new_tokens=1)
                     model.rank = 0
                     model._supports_chat_template_kwargs = model._supports_chat_tokenization_kwargs = True
                     model._run_tp_synced = lambda items, run: run(items)
                     accesses = []
+
                     class Documents:
                         def __getitem__(self, index):
                             accesses.append(index)
                             return index
+
                     model.task_dict = {"task": {"test": Documents()}}
                     callbacks = []
                     decoder = AudioDecoder()
                     requests = []
                     names = ["audio1", "audio2", "image", "text", "audio3"]
                     for index, name in enumerate(names):
+
                         def messages(doc, name=name):
                             callbacks.append(doc)
                             content = [{"type": "text", "text": name}]
@@ -177,8 +194,8 @@ class TestApertusAudioRouting(unittest.TestCase):
                             elif name == "image":
                                 content.append({"type": "image", "url": Image()})
                             return [{"role": "user", "content": content}]
-                        requests.append(SimpleNamespace(arguments=("context", messages,
-                            {"max_new_tokens": 30 + index, "temperature": 0, "top_p": 1}, index, "task", "test")))
+
+                        requests.append(SimpleNamespace(arguments=("context", messages, {"max_new_tokens": 30 + index, "temperature": 0, "top_p": 1}, index, "task", "test")))
                     protocol.calls = 0
                     results = model.generate_until(requests)
                 self.assertEqual(accesses, list(range(5)))
@@ -201,8 +218,7 @@ class TestApertusAudioRouting(unittest.TestCase):
                         for messages in kwargs["messages"]:
                             name = messages[0]["content"][0]["text"]
                             encoded = "d2F2ZWZvcm0=" if name == "audio2" else "fixture"
-                            self.assertEqual(messages[0]["content"][1],
-                                {"type": "audio_url", "audio_url": {"url": f"data:audio/wav;base64,{encoded}"}})
+                            self.assertEqual(messages[0]["content"][1], {"type": "audio_url", "audio_url": {"url": f"data:audio/wav;base64,{encoded}"}})
                 self.assertEqual([p["max_tokens"] for _, kwargs in model.client.calls for p in kwargs["sampling_params"]], [30, 31, 32, 33, 34])
                 self.assertEqual([text for text, _ in tokenizer.tokenized], ["image+image", "text"])
                 self.assertTrue(all(not kwargs["add_special_tokens"] for _, kwargs in tokenizer.tokenized))
