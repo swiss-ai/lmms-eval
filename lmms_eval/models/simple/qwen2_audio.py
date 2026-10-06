@@ -278,7 +278,7 @@ class Qwen2_Audio(lmms):
                     answers[i] = ans
 
             except Exception as e:
-                eval_logger.debug(f"Error while generating: {e}. It is possibly due to blank audio in {contexts}")
+                eval_logger.warning(f"Error while generating, returning empty answers for {len(contexts)} requests: {e}")
                 answers = [""] * len(contexts)
 
             for ans, context in zip(answers, contexts):
