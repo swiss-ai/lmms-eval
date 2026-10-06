@@ -212,7 +212,7 @@ class KimiAudio(lmms):
                     answer = generated_text
 
                 except Exception as e:
-                    eval_logger.debug(f"Error while generating: {e}. Context: {context[:100]}")
+                    eval_logger.warning(f"Error while generating, returning an empty answer: {e}. Context: {context[:100]}")
                     answer = ""
 
                 res.append(answer)
