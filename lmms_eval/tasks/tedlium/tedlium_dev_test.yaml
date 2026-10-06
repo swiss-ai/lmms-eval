@@ -1,6 +1,6 @@
 dataset_path: lmms-lab-audio/tedlium
 dataset_kwargs:
-  token: True
+  token: False
 task : "tedlium_dev_test"
 test_split: val
 dataset_name: tedlium_dev_test
