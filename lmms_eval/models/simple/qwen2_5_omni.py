@@ -5,7 +5,6 @@ import numpy as np
 import torch
 from accelerate import Accelerator, DistributedType
 from loguru import logger as eval_logger
-from moviepy import VideoFileClip
 from PIL import Image
 from tqdm import tqdm
 from transformers import Qwen2_5OmniForConditionalGeneration, Qwen2_5OmniProcessor
@@ -163,6 +162,8 @@ class Qwen2_5_Omni(lmms):
         return audio
 
     def _check_if_video_has_audio(self, video_path):
+        from moviepy import VideoFileClip  # video inputs only
+
         clip = VideoFileClip(video_path)
         return clip.audio is not None
 
