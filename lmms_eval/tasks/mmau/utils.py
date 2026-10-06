@@ -120,4 +120,7 @@ def parse_multi_choice_response(response, all_choices):
 
 
 def letter_to_ans(letter, choices):
-    return choices[ord(letter) - ord("A")]
+    # Some questions have fewer than four choices; a letter past the end is
+    # not a valid answer and scores as wrong instead of raising.
+    index = ord(letter) - ord("A")
+    return choices[index] if 0 <= index < len(choices) else ""
