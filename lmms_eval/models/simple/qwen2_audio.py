@@ -190,11 +190,20 @@ class Qwen2_Audio(lmms):
             sampling_rate = self.processor.feature_extractor.sampling_rate
             chunk_lim = self.processor.feature_extractor.n_samples
             new_batched_audios = []
-            for audios in batched_audios:
+            undecodable = set()
+            for idx, audios in enumerate(batched_audios):
                 new_audios = []
-                for audio in audios:
-                    splitted_audio = split_audio(downsample_audio(audio["array"], audio["sampling_rate"], sampling_rate), chunk_lim=chunk_lim)
-                    new_audios.extend(splitted_audio)
+                try:
+                    for audio in audios:
+                        splitted_audio = split_audio(downsample_audio(audio["array"], audio["sampling_rate"], sampling_rate), chunk_lim=chunk_lim)
+                        new_audios.extend(splitted_audio)
+                except Exception as e:
+                    # A clip the decoder rejects (e.g. one CoVoST2 file) would end
+                    # this rank's evaluation and leave the others waiting forever.
+                    # Answer it empty (scored as wrong) and keep the batch going.
+                    eval_logger.warning(f"Could not decode the audio of {task[idx]} doc {doc_id[idx]}, answering it empty: {e}")
+                    undecodable.add(idx)
+                    new_audios = [np.zeros(sampling_rate, dtype=np.float32)]
                 new_batched_audios.append(new_audios)
             batched_audios = new_batched_audios
             flattened_audios = self.flatten(batched_audios)
@@ -280,6 +289,8 @@ class Qwen2_Audio(lmms):
             except Exception as e:
                 eval_logger.warning(f"Error while generating, returning empty answers for {len(contexts)} requests: {e}")
                 answers = [""] * len(contexts)
+            for idx in undecodable:
+                answers[idx] = ""
 
             for ans, context in zip(answers, contexts):
                 res.append(ans)
