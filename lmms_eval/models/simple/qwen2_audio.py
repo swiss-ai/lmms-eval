@@ -1,6 +1,6 @@
-import numpy as np
 from typing import List, Optional, Tuple, Union
 
+import numpy as np
 import torch
 from accelerate import Accelerator, DistributedType
 from loguru import logger as eval_logger
