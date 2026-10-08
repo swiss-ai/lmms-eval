@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple, Union
 
+import numpy as np
 import torch
 from accelerate import Accelerator, DistributedType
 from loguru import logger as eval_logger
@@ -182,17 +183,27 @@ class Qwen2_Audio(lmms):
         chunks = re_ords.get_batched(n=self.batch_size, batch_fn=None)
         for chunk in chunks:
             contexts, all_gen_kwargs, doc_to_visual, doc_id, task, split = zip(*chunk)
-            task = task[0]
-            split = split[0]
-            batched_audios = [doc_to_visual[0](self.task_dict[task][split][ids]) for ids in doc_id]
+            # A batch is grouped by gen_kwargs only, so it can span the subtasks
+            # of a group (e.g. VoiceBench MMSU subjects); look each request up
+            # in its own task's dataset.
+            batched_audios = [to_visual(self.task_dict[t][s][i]) for to_visual, i, t, s in zip(doc_to_visual, doc_id, task, split)]
             sampling_rate = self.processor.feature_extractor.sampling_rate
             chunk_lim = self.processor.feature_extractor.n_samples
             new_batched_audios = []
-            for audios in batched_audios:
+            undecodable = set()
+            for idx, audios in enumerate(batched_audios):
                 new_audios = []
-                for audio in audios:
-                    splitted_audio = split_audio(downsample_audio(audio["array"], audio["sampling_rate"], sampling_rate), chunk_lim=chunk_lim)
-                    new_audios.extend(splitted_audio)
+                try:
+                    for audio in audios:
+                        splitted_audio = split_audio(downsample_audio(audio["array"], audio["sampling_rate"], sampling_rate), chunk_lim=chunk_lim)
+                        new_audios.extend(splitted_audio)
+                except Exception as e:
+                    # A clip the decoder rejects (e.g. one CoVoST2 file) would end
+                    # this rank's evaluation and leave the others waiting forever.
+                    # Answer it empty (scored as wrong) and keep the batch going.
+                    eval_logger.warning(f"Could not decode the audio of {task[idx]} doc {doc_id[idx]}, answering it empty: {e}")
+                    undecodable.add(idx)
+                    new_audios = [np.zeros(sampling_rate, dtype=np.float32)]
                 new_batched_audios.append(new_audios)
             batched_audios = new_batched_audios
             flattened_audios = self.flatten(batched_audios)
@@ -216,7 +227,10 @@ class Qwen2_Audio(lmms):
 
             if isinstance(contexts, tuple):
                 contexts = list(contexts)
-            audios = [audio for audio in flattened_audios]
+            # Whisper's feature extractor needs mono 1-D audio; some datasets
+            # (VoiceBench, MMSU) decode to (channels, samples).
+            audios = [np.asarray(a, dtype=np.float32) for a in flattened_audios]
+            audios = [a.mean(axis=0 if a.shape[0] < a.shape[1] else 1) if a.ndim == 2 else a for a in audios]
 
             if not self.simple_prompt:
                 conversations = []
@@ -273,8 +287,10 @@ class Qwen2_Audio(lmms):
                     answers[i] = ans
 
             except Exception as e:
-                eval_logger.debug(f"Error while generating: {e}. It is possibly due to blank audio in {contexts}")
+                eval_logger.warning(f"Error while generating, returning empty answers for {len(contexts)} requests: {e}")
                 answers = [""] * len(contexts)
+            for idx in undecodable:
+                answers[idx] = ""
 
             for ans, context in zip(answers, contexts):
                 res.append(ans)

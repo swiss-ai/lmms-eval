@@ -32,7 +32,6 @@ from lmms_eval.protocol import ChatMessages
 from lmms_eval.models.emu3p5_encoder_base_model import EMU3p5EncoderBaseModel  # noqa: F401  isort: skip
 
 
-
 # Path to EMU3.5 tokenizer directory
 _current_file = Path(__file__).resolve()
 _repo_root = _current_file.parents[3]  # Go up to lmms-eval root

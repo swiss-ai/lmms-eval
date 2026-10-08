@@ -1,0 +1,3 @@
+dataset_name: de_de
+include: _default_template_val_yaml
+task: fleurs_de_de_val
